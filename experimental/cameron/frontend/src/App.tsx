@@ -369,8 +369,8 @@ export default function App() {
 
       {versions.map((version) => (
         <Card key={version.id} size="2" style={{ marginTop: 16 }}>
-          <Flex direction="row" gap="4" p="4">
-            <Flex direction="column" gap="2" style={{ minWidth: 150 }}>
+          <Flex direction="column" gap="4" p="4">
+            <Flex direction="column" gap="2">
               <Text size="3" weight="bold">
                 Version ID: {version.id}
               </Text>
@@ -381,85 +381,92 @@ export default function App() {
                   <em>No description</em>
                 )}
               </Text>
-              <Button
-                onClick={async () => {
-                  setGeneratingNotesId(version.id);
-                  try {
-                    const notes = await generateNotes(Number(version.id));
-                    setAiNotes(Number(version.id), notes);
-                  } catch (error) {
-                    console.error("Error generating notes:", error);
-                    alert(
-                      "Failed to generate notes. Check console for details.",
-                    );
-                  } finally {
-                    setGeneratingNotesId(null);
-                  }
-                }}
-                disabled={generatingNotesId === version.id}
-                size="2"
-              >
-                {generatingNotesId === version.id
-                  ? "Generating..."
-                  : "Generate AI Notes"}
-              </Button>
             </Flex>
-            <Box mt="2" style={{ flex: 1 }}>
-              <label htmlFor={`user-notes-${version.id}`}>User Notes</label>
-              <TextArea
-                onFocus={() =>
-                  setVersion(Number(version.id), { ...version.context })
-                }
-                id={`user-notes-${version.id}`}
-                value={version.userNotes || ""}
-                onChange={(e) =>
-                  setUserNotes(Number(version.id), e.target.value)
-                }
-                placeholder="Enter your notes for this version"
-                style={{ minWidth: 250, minHeight: 200, marginTop: 4 }}
-              />
-            </Box>
-            <Box mt="2" style={{ flex: 1 }}>
-              <label htmlFor={`ai-notes-${version.id}`}>
-                AI Generated Notes
-              </label>
-              <TextArea
-                id={`ai-notes-${version.id}`}
-                value={version.aiNotes || ""}
-                placeholder="AI generated notes will appear here..."
-                readOnly
-                style={{ minWidth: 250, minHeight: 200, marginTop: 4 }}
-              />
-              <Flex justify="end" style={{ marginTop: 8 }}>
-                <Button
-                  size="1"
-                  onClick={() => {
-                    const currentUserNotes = version.userNotes || "";
-                    const separator = currentUserNotes ? "\n\n" : "";
-                    setUserNotes(
-                      Number(version.id),
-                      currentUserNotes + separator + (version.aiNotes || ""),
-                    );
-                  }}
-                  disabled={!version.aiNotes}
+            <Flex direction="row" gap="4">
+              <Box style={{ flex: 1 }}>
+                <label htmlFor={`user-notes-${version.id}`}>User Notes</label>
+                <TextArea
+                  onFocus={() =>
+                    setVersion(Number(version.id), { ...version.context })
+                  }
+                  id={`user-notes-${version.id}`}
+                  value={version.userNotes || ""}
+                  onChange={(e) =>
+                    setUserNotes(Number(version.id), e.target.value)
+                  }
+                  placeholder="Enter your notes for this version"
+                  style={{ minWidth: 250, minHeight: 200, marginTop: 4 }}
+                />
+              </Box>
+              <Box style={{ flex: 1 }}>
+                <label htmlFor={`ai-notes-${version.id}`}>
+                  AI Generated Notes
+                </label>
+                <TextArea
+                  id={`ai-notes-${version.id}`}
+                  value={version.aiNotes || ""}
+                  placeholder="AI generated notes will appear here..."
+                  readOnly
+                  style={{ minWidth: 250, minHeight: 200, marginTop: 4 }}
+                />
+                <Flex
+                  direction="row"
+                  gap="2"
+                  justify="end"
+                  style={{ marginTop: 8 }}
                 >
-                  Add to Notes
-                </Button>
-              </Flex>
-            </Box>
-            <Box mt="2" style={{ flex: 1 }}>
-              <label htmlFor={`transcript-${version.id}`}>Transcript</label>
-              <TextArea
-                onFocus={() =>
-                  setVersion(Number(version.id), { ...version.context })
-                }
-                id={`transcript-${version.id}`}
-                value={getTranscriptText(version.id)}
-                placeholder="Transcript will appear here as it's received..."
-                readOnly
-                style={{ minWidth: 500, minHeight: 200, marginTop: 4 }}
-              />
-            </Box>
+                  <Button
+                    onClick={async () => {
+                      setGeneratingNotesId(version.id);
+                      try {
+                        const notes = await generateNotes(Number(version.id));
+                        setAiNotes(Number(version.id), notes);
+                      } catch (error) {
+                        console.error("Error generating notes:", error);
+                        alert(
+                          "Failed to generate notes. Check console for details.",
+                        );
+                      } finally {
+                        setGeneratingNotesId(null);
+                      }
+                    }}
+                    disabled={generatingNotesId === version.id}
+                    size="1"
+                  >
+                    {generatingNotesId === version.id
+                      ? "Generating..."
+                      : "Generate"}
+                  </Button>
+                  <Button
+                    size="1"
+                    onClick={() => {
+                      const currentUserNotes = version.userNotes || "";
+                      const separator = currentUserNotes ? "\n\n" : "";
+                      setUserNotes(
+                        Number(version.id),
+                        currentUserNotes + separator + (version.aiNotes || ""),
+                      );
+                    }}
+                    disabled={!version.aiNotes}
+                  >
+                    Add to Notes
+                  </Button>
+                </Flex>
+              </Box>
+              <Box style={{ flex: 1 }}>
+                <label htmlFor={`transcript-${version.id}`}>Transcript</label>
+                <TextArea
+                  onFocus={() =>
+                    setVersion(Number(version.id), { ...version.context })
+                  }
+                  id={`transcript-${version.id}`}
+                  value={getTranscriptText(version.id)}
+                  placeholder="Transcript will appear here as it's received..."
+                  readOnly
+                  style={{ minWidth: 500, minHeight: 200, marginTop: 4 }}
+                />
+              </Box>
+            </Flex>
           </Flex>
         </Card>
       ))}
