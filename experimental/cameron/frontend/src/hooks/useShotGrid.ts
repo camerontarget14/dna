@@ -16,10 +16,6 @@ interface ShotGridPlaylist {
   name?: string;
 }
 
-interface ShotGridConfig {
-  shotgrid_enabled: boolean;
-}
-
 interface ValidationResponse {
   status: "success" | "error";
   message?: string;
@@ -28,33 +24,37 @@ interface ValidationResponse {
 }
 
 export const useShotGrid = () => {
-  const [config, setConfig] = useState<ShotGridConfig>({ shotgrid_enabled: false });
+  const [shotgridEnabled, setShotgridEnabled] = useState(false);
   const [configLoaded, setConfigLoaded] = useState(false);
   const [projects, setProjects] = useState<ShotGridProject[]>([]);
   const [playlists, setPlaylists] = useState<ShotGridPlaylist[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
-  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string>("");
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    null,
+  );
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
 
   // Fetch configuration on mount
   useEffect(() => {
     fetch(`${BACKEND_URL}/config`)
       .then((res) => res.json())
       .then((data) => {
-        setConfig(data);
+        setShotgridEnabled(data.shotgrid_enabled || false);
         setConfigLoaded(true);
       })
       .catch(() => {
         console.error("Failed to fetch app config, assuming ShotGrid disabled");
-        setConfig({ shotgrid_enabled: false });
+        setShotgridEnabled(false);
         setConfigLoaded(true);
       });
   }, []);
 
   // Fetch projects when config is loaded and ShotGrid is enabled
   useEffect(() => {
-    if (!configLoaded || !config.shotgrid_enabled) return;
+    if (!configLoaded || !shotgridEnabled) return;
 
     setLoading(true);
     fetch(`${BACKEND_URL}/shotgrid/active-projects`)
@@ -68,13 +68,13 @@ export const useShotGrid = () => {
       })
       .catch(() => setError("Network error fetching projects"))
       .finally(() => setLoading(false));
-  }, [configLoaded, config.shotgrid_enabled]);
+  }, [configLoaded, shotgridEnabled]);
 
   // Fetch playlists when a project is selected
   useEffect(() => {
-    if (!config.shotgrid_enabled || !selectedProjectId) {
+    if (!shotgridEnabled || !selectedProjectId) {
       setPlaylists([]);
-      setSelectedPlaylistId("");
+      setSelectedPlaylistId(null);
       return;
     }
 
@@ -90,15 +90,17 @@ export const useShotGrid = () => {
       })
       .catch(() => setError("Network error fetching playlists"))
       .finally(() => setLoading(false));
-  }, [config.shotgrid_enabled, selectedProjectId]);
+  }, [shotgridEnabled, selectedProjectId]);
 
   // Fetch playlist items (shots/versions)
   const fetchPlaylistItems = async (playlistId: string): Promise<string[]> => {
-    if (!config.shotgrid_enabled || !playlistId) return [];
+    if (!shotgridEnabled || !playlistId) return [];
 
     setLoading(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/shotgrid/playlist-items/${playlistId}`);
+      const response = await fetch(
+        `${BACKEND_URL}/shotgrid/playlist-items/${playlistId}`,
+      );
       const data = await response.json();
 
       if (data.status === "success" && Array.isArray(data.items)) {
@@ -117,9 +119,9 @@ export const useShotGrid = () => {
   // Validate shot/version against ShotGrid
   const validateShotVersion = async (
     inputValue: string,
-    projectId?: string
+    projectId?: string,
   ): Promise<ValidationResponse> => {
-    if (!config.shotgrid_enabled) {
+    if (!shotgridEnabled) {
       return {
         status: "success",
         shot_name: inputValue,
@@ -127,14 +129,17 @@ export const useShotGrid = () => {
     }
 
     try {
-      const response = await fetch(`${BACKEND_URL}/shotgrid/validate-shot-version`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          input_value: inputValue.trim(),
-          project_id: projectId ? parseInt(projectId) : null,
-        }),
-      });
+      const response = await fetch(
+        `${BACKEND_URL}/shotgrid/validate-shot-version`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            input_value: inputValue.trim(),
+            project_id: projectId ? parseInt(projectId) : null,
+          }),
+        },
+      );
 
       const data = await response.json();
       return data;
@@ -148,7 +153,6 @@ export const useShotGrid = () => {
   };
 
   return {
-    config,
     configLoaded,
     projects,
     playlists,
@@ -160,6 +164,6 @@ export const useShotGrid = () => {
     error,
     fetchPlaylistItems,
     validateShotVersion,
-    isEnabled: config.shotgrid_enabled,
+    isEnabled: shotgridEnabled,
   };
 };
