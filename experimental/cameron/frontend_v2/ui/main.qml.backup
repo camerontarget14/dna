@@ -10,7 +10,7 @@ ApplicationWindow {
     height: 800
     minimumWidth: 800
     minimumHeight: 600
-    title: "DNA Dailies Notes Assistant"
+    title: "Dailies Notes Assistant"
 
     color: themeManager.backgroundColor
 

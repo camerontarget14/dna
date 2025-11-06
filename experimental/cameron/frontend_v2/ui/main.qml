@@ -10,9 +10,15 @@ ApplicationWindow {
     height: 800
     minimumWidth: 1200
     minimumHeight: 750
-    title: "DNA Dailies Notes Assistant"
+    title: "Dailies Notes Assistant"
 
     color: themeManager.backgroundColor
+
+    // Keyboard shortcut for theme customizer
+    Shortcut {
+        sequence: "T"
+        onActivated: themeCustomizer.open()
+    }
 
     // Theme Manager (singleton-like object)
     QtObject {
@@ -42,7 +48,7 @@ ApplicationWindow {
             // Join Meeting Widget
             Rectangle {
                 width: Math.max(300, Math.min(400, (root.width - 48) / 3 - 16))
-                height: 180
+                height: 220
                 color: themeManager.cardBackground
                 radius: themeManager.borderRadius
                 border.color: themeManager.borderColor
@@ -51,7 +57,7 @@ ApplicationWindow {
                 ColumnLayout {
                         anchors.fill: parent
                         anchors.margins: 16
-                        spacing: 12
+                        spacing: 0
 
                         Text {
                             text: "Meeting"
@@ -59,9 +65,28 @@ ApplicationWindow {
                             font.bold: true
                             color: themeManager.textColor
                             Layout.fillWidth: true
+                            Layout.bottomMargin: 12
                         }
 
-                        Item { Layout.fillHeight: true }
+                        TextField {
+                            id: meetingIdInput
+                            Layout.fillWidth: true
+                            placeholderText: "Meeting ID"
+                            text: backend.meetingId
+                            color: themeManager.textColor
+                            Layout.bottomMargin: 8
+
+                            background: Rectangle {
+                                color: themeManager.inputBackground
+                                border.color: themeManager.borderColor
+                                border.width: 1
+                                radius: 4
+                            }
+
+                            onTextChanged: {
+                                backend.meetingId = text
+                            }
+                        }
 
                         Button {
                             text: "Join Meeting"
@@ -85,38 +110,13 @@ ApplicationWindow {
                                 font.pixelSize: 14
                             }
                         }
-
-                        Button {
-                            text: "⚙ Theme"
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 32
-
-                            onClicked: {
-                                themeCustomizer.open()
-                            }
-
-                            background: Rectangle {
-                                color: parent.hovered ? "#3a3a3a" : themeManager.cardBackground
-                                radius: 6
-                                border.color: themeManager.borderColor
-                                border.width: 1
-                            }
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: themeManager.textColor
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                font.pixelSize: 12
-                            }
-                        }
                     }
                 }
 
             // LLM Assistant Widget
             Rectangle {
                 width: Math.max(300, Math.min(400, (root.width - 48) / 3 - 16))
-                height: 180
+                height: 220
                 color: themeManager.cardBackground
                 radius: themeManager.borderRadius
                 border.color: themeManager.borderColor
@@ -168,12 +168,12 @@ ApplicationWindow {
                             currentIndex: llmTabBar.currentIndex
 
                             // OpenAI Tab
-                            RowLayout {
+                            ColumnLayout {
                                 spacing: 8
 
                                 TextField {
                                     Layout.fillWidth: true
-                                    placeholderText: "API KEY"
+                                    placeholderText: "API Key"
                                     text: backend.openaiApiKey
                                     color: themeManager.textColor
                                     echoMode: TextInput.Password
@@ -188,30 +188,36 @@ ApplicationWindow {
                                     onTextChanged: backend.openaiApiKey = text
                                 }
 
-                                TextField {
+                                ScrollView {
                                     Layout.fillWidth: true
-                                    placeholderText: "Prompt"
-                                    text: backend.openaiPrompt
-                                    color: themeManager.textColor
+                                    Layout.fillHeight: true
+                                    Layout.minimumHeight: 40
 
-                                    background: Rectangle {
-                                        color: themeManager.inputBackground
-                                        border.color: themeManager.borderColor
-                                        border.width: 1
-                                        radius: 4
+                                    TextArea {
+                                        placeholderText: "Prompt"
+                                        text: backend.openaiPrompt
+                                        color: themeManager.textColor
+                                        wrapMode: TextArea.Wrap
+
+                                        background: Rectangle {
+                                            color: themeManager.inputBackground
+                                            border.color: themeManager.borderColor
+                                            border.width: 1
+                                            radius: 4
+                                        }
+
+                                        onTextChanged: backend.openaiPrompt = text
                                     }
-
-                                    onTextChanged: backend.openaiPrompt = text
                                 }
                             }
 
                             // Claude Tab
-                            RowLayout {
+                            ColumnLayout {
                                 spacing: 8
 
                                 TextField {
                                     Layout.fillWidth: true
-                                    placeholderText: "API KEY"
+                                    placeholderText: "API Key"
                                     text: backend.claudeApiKey
                                     color: themeManager.textColor
                                     echoMode: TextInput.Password
@@ -226,30 +232,36 @@ ApplicationWindow {
                                     onTextChanged: backend.claudeApiKey = text
                                 }
 
-                                TextField {
+                                ScrollView {
                                     Layout.fillWidth: true
-                                    placeholderText: "Prompt"
-                                    text: backend.claudePrompt
-                                    color: themeManager.textColor
+                                    Layout.fillHeight: true
+                                    Layout.minimumHeight: 40
 
-                                    background: Rectangle {
-                                        color: themeManager.inputBackground
-                                        border.color: themeManager.borderColor
-                                        border.width: 1
-                                        radius: 4
+                                    TextArea {
+                                        placeholderText: "Prompt"
+                                        text: backend.claudePrompt
+                                        color: themeManager.textColor
+                                        wrapMode: TextArea.Wrap
+
+                                        background: Rectangle {
+                                            color: themeManager.inputBackground
+                                            border.color: themeManager.borderColor
+                                            border.width: 1
+                                            radius: 4
+                                        }
+
+                                        onTextChanged: backend.claudePrompt = text
                                     }
-
-                                    onTextChanged: backend.claudePrompt = text
                                 }
                             }
 
                             // Llama Tab
-                            RowLayout {
+                            ColumnLayout {
                                 spacing: 8
 
                                 TextField {
                                     Layout.fillWidth: true
-                                    placeholderText: "API KEY"
+                                    placeholderText: "API Key"
                                     text: backend.llamaApiKey
                                     color: themeManager.textColor
                                     echoMode: TextInput.Password
@@ -264,20 +276,26 @@ ApplicationWindow {
                                     onTextChanged: backend.llamaApiKey = text
                                 }
 
-                                TextField {
+                                ScrollView {
                                     Layout.fillWidth: true
-                                    placeholderText: "Prompt"
-                                    text: backend.llamaPrompt
-                                    color: themeManager.textColor
+                                    Layout.fillHeight: true
+                                    Layout.minimumHeight: 40
 
-                                    background: Rectangle {
-                                        color: themeManager.inputBackground
-                                        border.color: themeManager.borderColor
-                                        border.width: 1
-                                        radius: 4
+                                    TextArea {
+                                        placeholderText: "Prompt"
+                                        text: backend.llamaPrompt
+                                        color: themeManager.textColor
+                                        wrapMode: TextArea.Wrap
+
+                                        background: Rectangle {
+                                            color: themeManager.inputBackground
+                                            border.color: themeManager.borderColor
+                                            border.width: 1
+                                            radius: 4
+                                        }
+
+                                        onTextChanged: backend.llamaPrompt = text
                                     }
-
-                                    onTextChanged: backend.llamaPrompt = text
                                 }
                             }
                         }
@@ -287,7 +305,7 @@ ApplicationWindow {
             // Playlists Widget
             Rectangle {
                 width: Math.max(300, Math.min(400, (root.width - 48) / 3 - 16))
-                height: 180
+                height: 220
                 color: themeManager.cardBackground
                 radius: themeManager.borderRadius
                 border.color: themeManager.borderColor
@@ -405,11 +423,42 @@ ApplicationWindow {
                                         }
                                     }
                                 }
+
+                                Button {
+                                    text: "Load Playlist"
+                                    Layout.fillWidth: true
+                                    enabled: backend.shotgridPlaylists.length > 0
+
+                                    onClicked: {
+                                        backend.loadShotgridPlaylist()
+                                    }
+
+                                    background: Rectangle {
+                                        color: parent.enabled ? (parent.hovered ? themeManager.accentHover : themeManager.accentColor) : "#3a3a3a"
+                                        radius: 6
+                                    }
+
+                                    contentItem: Text {
+                                        text: parent.text
+                                        color: parent.enabled ? themeManager.textColor : "#555555"
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                        font.pixelSize: 12
+                                    }
+                                }
                             }
 
                             // CSV Playlist Tab
-                            RowLayout {
+                            ColumnLayout {
                                 spacing: 8
+
+                                Text {
+                                    text: "Upload a CSV file with version names in the first column (header row will be skipped)"
+                                    font.pixelSize: 11
+                                    color: themeManager.mutedTextColor
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                }
 
                                 Button {
                                     text: "Import CSV"
@@ -420,15 +469,13 @@ ApplicationWindow {
                                     }
 
                                     background: Rectangle {
-                                        color: parent.hovered ? "#3a3a3a" : themeManager.cardBackground
+                                        color: parent.enabled ? (parent.hovered ? themeManager.accentHover : themeManager.accentColor) : "#3a3a3a"
                                         radius: 6
-                                        border.color: themeManager.borderColor
-                                        border.width: 1
                                     }
 
                                     contentItem: Text {
                                         text: parent.text
-                                        color: themeManager.textColor
+                                        color: parent.enabled ? themeManager.textColor : "#555555"
                                         horizontalAlignment: Text.AlignHCenter
                                         verticalAlignment: Text.AlignVCenter
                                         font.pixelSize: 12
@@ -444,15 +491,13 @@ ApplicationWindow {
                                     }
 
                                     background: Rectangle {
-                                        color: parent.hovered ? "#3a3a3a" : themeManager.cardBackground
+                                        color: parent.enabled ? (parent.hovered ? themeManager.accentHover : themeManager.accentColor) : "#3a3a3a"
                                         radius: 6
-                                        border.color: themeManager.borderColor
-                                        border.width: 1
                                     }
 
                                     contentItem: Text {
                                         text: parent.text
-                                        color: themeManager.textColor
+                                        color: parent.enabled ? themeManager.textColor : "#555555"
                                         horizontalAlignment: Text.AlignHCenter
                                         verticalAlignment: Text.AlignVCenter
                                         font.pixelSize: 12
@@ -504,7 +549,7 @@ ApplicationWindow {
                         clip: true
 
                         delegate: ItemDelegate {
-                            width: versionListView.width
+                            width: versionListView.width - 16  // Reserve space for scrollbar
 
                             background: Rectangle {
                                 color: versionListView.currentIndex === index ? themeManager.accentColor : "#3a3a3a"
@@ -519,6 +564,7 @@ ApplicationWindow {
                                 font.pixelSize: 14
                                 wrapMode: Text.WordWrap
                                 padding: 10
+                                rightPadding: 12  // Extra padding on right side
                             }
 
                             onClicked: {
@@ -566,40 +612,10 @@ ApplicationWindow {
                             }
 
                             Text {
-                                text: backend.selectedVersionId ? "Version ID: " + backend.selectedVersionId : ""
+                                text: backend.selectedVersionId && backend.selectedVersionId !== "" ? "Version ID: " + backend.selectedVersionId : ""
                                 font.pixelSize: 12
                                 color: themeManager.mutedTextColor
-                            }
-                        }
-
-                        // Name input
-                        RowLayout {
-                            spacing: 8
-
-                            Text {
-                                text: "Name:"
-                                font.pixelSize: 12
-                                font.bold: true
-                                color: themeManager.textColor
-                            }
-
-                            TextField {
-                                id: nameInput
-                                placeholderText: "Your name"
-                                text: backend.userName
-                                color: themeManager.textColor
-                                Layout.preferredWidth: 150
-
-                                background: Rectangle {
-                                    color: themeManager.inputBackground
-                                    border.color: themeManager.borderColor
-                                    border.width: 1
-                                    radius: 4
-                                }
-
-                                onTextChanged: {
-                                    backend.userName = text
-                                }
+                                visible: backend.selectedVersionId && backend.selectedVersionId !== ""
                             }
                         }
                     }
@@ -734,54 +750,66 @@ ApplicationWindow {
                                 }
                             }
 
-                            // Staging area
-                            ScrollView {
+                            // Staging area with overlay send button
+                            Item {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 100
                                 Layout.minimumHeight: 60
 
-                                TextArea {
-                                    id: stagingArea
-                                    text: backend.stagingNote
-                                    wrapMode: TextArea.Wrap
-                                    color: themeManager.textColor
-                                    placeholderText: "Type your note here..."
+                                ScrollView {
+                                    anchors.fill: parent
 
-                                    onTextChanged: {
-                                        backend.stagingNote = text
+                                    TextArea {
+                                        id: stagingArea
+                                        text: backend.stagingNote
+                                        wrapMode: TextArea.Wrap
+                                        color: themeManager.textColor
+                                        placeholderText: "Type your note here..."
+                                        rightPadding: 80  // Make room for the button
+
+                                        onTextChanged: {
+                                            backend.stagingNote = text
+                                        }
+
+                                        background: Rectangle {
+                                            color: themeManager.inputBackground
+                                            border.color: themeManager.borderColor
+                                            border.width: 1
+                                            radius: 6
+                                        }
+                                    }
+                                }
+
+                                // Send button overlaid in bottom-right corner
+                                Button {
+                                    text: "Send"
+                                    enabled: backend.stagingNote.trim() !== ""
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    anchors.margins: 8
+                                    width: 70
+                                    height: 32
+
+                                    onClicked: {
+                                        // Save note to the currently selected version
+                                        backend.saveNoteToVersion(backend.stagingNote)
+
+                                        // Clear staging area
+                                        stagingArea.text = ""
                                     }
 
                                     background: Rectangle {
-                                        color: themeManager.inputBackground
-                                        border.color: themeManager.borderColor
-                                        border.width: 1
+                                        color: parent.enabled ? (parent.hovered ? themeManager.accentHover : themeManager.accentColor) : "#3a3a3a"
                                         radius: 6
                                     }
-                                }
-                            }
 
-                            // Send button
-                            Button {
-                                text: "Send"
-                                enabled: backend.stagingNote.trim() !== ""
-                                Layout.alignment: Qt.AlignRight
-
-                                onClicked: {
-                                    backend.sendNote()
-                                    stagingArea.text = ""
-                                }
-
-                                background: Rectangle {
-                                    color: parent.enabled ? (parent.hovered ? themeManager.accentHover : themeManager.accentColor) : "#3a3a3a"
-                                    radius: 6
-                                }
-
-                                contentItem: Text {
-                                    text: parent.text
-                                    color: parent.enabled ? themeManager.textColor : "#555555"
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                    font.pixelSize: 14
+                                    contentItem: Text {
+                                        text: parent.text
+                                        color: parent.enabled ? themeManager.textColor : "#555555"
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                        font.pixelSize: 14
+                                    }
                                 }
                             }
                         }
@@ -808,76 +836,6 @@ ApplicationWindow {
                             }
                         }
                     }
-                }
-            }
-        }
-    }
-
-    // Name prompt dialog on first launch
-    Dialog {
-        id: namePrompt
-        modal: true
-        anchors.centerIn: parent
-        width: 400
-        title: "What is your name:"
-        visible: backend.userName === ""
-
-        background: Rectangle {
-            color: themeManager.cardBackground
-            border.color: themeManager.borderColor
-            border.width: 1
-            radius: 8
-        }
-
-        ColumnLayout {
-            anchors.fill: parent
-            spacing: 16
-
-            TextField {
-                id: namePromptInput
-                Layout.fillWidth: true
-                placeholderText: "Enter your name"
-                color: themeManager.textColor
-                font.pixelSize: 16
-
-                background: Rectangle {
-                    color: themeManager.inputBackground
-                    border.color: themeManager.borderColor
-                    border.width: 1
-                    radius: 4
-                }
-
-                Keys.onReturnPressed: {
-                    if (text.trim() !== "") {
-                        backend.userName = text
-                        namePrompt.close()
-                    }
-                }
-
-                Component.onCompleted: forceActiveFocus()
-            }
-
-            Button {
-                text: "Continue"
-                Layout.alignment: Qt.AlignRight
-                enabled: namePromptInput.text.trim() !== ""
-
-                onClicked: {
-                    backend.userName = namePromptInput.text
-                    namePrompt.close()
-                }
-
-                background: Rectangle {
-                    color: parent.enabled ? (parent.hovered ? themeManager.accentHover : themeManager.accentColor) : "#3a3a3a"
-                    radius: 6
-                }
-
-                contentItem: Text {
-                    text: parent.text
-                    color: parent.enabled ? themeManager.textColor : "#555555"
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    font.pixelSize: 14
                 }
             }
         }

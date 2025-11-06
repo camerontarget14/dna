@@ -11,10 +11,12 @@ from playlist import router as playlist_router
 import random
 from email_service import router as email_router
 from note_service import router as note_router
+from version_service import router as version_router
 
 # Load environment variables from .env file (optional)
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     # python-dotenv not installed, environment variables should be set manually
@@ -38,15 +40,16 @@ shotgrid_enabled = bool(SHOTGRID_URL and SHOTGRID_URL.strip())
 app.include_router(playlist_router)
 app.include_router(email_router)
 app.include_router(note_router)
+app.include_router(version_router)
 
 # Only register shotgrid router if ShotGrid is configured
 if shotgrid_enabled:
     from shotgrid_service import router as shotgrid_router
+
     app.include_router(shotgrid_router)
+
 
 @app.get("/config")
 def get_config():
     """Return application configuration including feature availability."""
-    return JSONResponse(content={
-        "shotgrid_enabled": shotgrid_enabled
-    })
+    return JSONResponse(content={"shotgrid_enabled": shotgrid_enabled})

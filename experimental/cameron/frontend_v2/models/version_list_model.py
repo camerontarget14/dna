@@ -17,6 +17,10 @@ class VersionListModel(QAbstractListModel):
         super().__init__(parent)
         self._backend = backend_service
         self._versions = []
+
+        # Connect to backend signal
+        self._backend.versionsLoaded.connect(self.load_versions)
+
         self.load_versions()
 
     def load_versions(self):
