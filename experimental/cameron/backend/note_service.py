@@ -1,5 +1,6 @@
 import os
 import random
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -10,15 +11,23 @@ class LLMSummaryRequest(BaseModel):
     text: str
 
 
+class GenerateAINotesRequest(BaseModel):
+    """Request to generate AI notes from transcript"""
+
+    version_id: str
+    transcript: str = None  # If not provided, uses version's existing transcript
+
+
 # --- LLM IMPLEMENTATION CODE ---
 
 import os
-import requests
-from openai import OpenAI
+import re
+
 import anthropic
 import google.generativeai as genai
-import re
+import requests
 from dotenv import load_dotenv
+from openai import OpenAI
 
 # === CONFIGURABLE PARAMETERS ===
 TEMPERATURE = 0.1
@@ -186,6 +195,16 @@ async def llm_summary(data: LLMSummaryRequest):
     Generate a summary using LLM for the given text.
     Tries providers in order: OpenAI -> Gemini -> Anthropic
     """
+    summary = generate_summary(data.text)
+    return {"summary": summary}
+
+
+def generate_summary(text: str) -> str:
+    """
+    Internal function to generate a summary using LLM for the given text.
+    This can be imported directly by other services to avoid HTTP overhead.
+    Tries providers in order: OpenAI -> Gemini -> Anthropic
+    """
     if DISABLE_LLM:
         # Return a random summary for testing
         random_summaries = [
@@ -198,14 +217,14 @@ async def llm_summary(data: LLMSummaryRequest):
             "Artist to be notified about animation and lighting feedback.",
             "Overall progress is good; next steps communicated to the team.",
         ]
-        return {"summary": random.choice(random_summaries)}
+        return random.choice(random_summaries)
 
     # Try OpenAI first (current preference)
     if openai_client:
         try:
             print(f"Using OpenAI ({openai_model}) for summary")
-            summary = summarize_openai(data.text, openai_model, openai_client)
-            return {"summary": summary}
+            summary = summarize_openai(text, openai_model, openai_client)
+            return summary
         except Exception as e:
             print(f"Error with OpenAI: {e}")
 
@@ -213,8 +232,8 @@ async def llm_summary(data: LLMSummaryRequest):
     if gemini_client:
         try:
             print(f"Using Gemini ({gemini_model}) for summary")
-            summary = summarize_gemini(data.text, gemini_model, gemini_client)
-            return {"summary": summary}
+            summary = summarize_gemini(text, gemini_model, gemini_client)
+            return summary
         except Exception as e:
             print(f"Error with Gemini: {e}")
 
@@ -222,8 +241,8 @@ async def llm_summary(data: LLMSummaryRequest):
     if anthropic_client:
         try:
             print(f"Using Anthropic ({anthropic_model}) for summary")
-            summary = summarize_claude(data.text, anthropic_model, anthropic_client)
-            return {"summary": summary}
+            summary = summarize_claude(text, anthropic_model, anthropic_client)
+            return summary
         except Exception as e:
             print(f"Error with Anthropic: {e}")
 
@@ -232,3 +251,36 @@ async def llm_summary(data: LLMSummaryRequest):
         status_code=500,
         detail="No LLM providers available. Please configure at least one API key (OPENAI_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY) in .env file.",
     )
+
+
+@router.post("/generate-ai-notes")
+async def generate_ai_notes_endpoint(request: GenerateAINotesRequest):
+    """
+    Generate AI notes from transcript for a version.
+    This endpoint requires access to version storage from version_service.
+    """
+    # Import here to avoid circular dependency
+    from version_service import _versions
+
+    version_id = request.version_id
+
+    if version_id not in _versions:
+        raise HTTPException(status_code=404, detail=f"Version '{version_id}' not found")
+
+    version = _versions[version_id]
+
+    # Use provided transcript or version's existing transcript
+    transcript = request.transcript if request.transcript else version.transcript
+
+    if not transcript:
+        raise HTTPException(
+            status_code=400, detail="No transcript available for AI note generation"
+        )
+
+    # Generate AI notes using the internal function
+    ai_notes = generate_summary(transcript)
+
+    # Store AI notes in version
+    version.ai_notes = ai_notes
+
+    return {"status": "success", "version": version.model_dump()}
