@@ -1,17 +1,16 @@
-import asyncio
-import json
-import os
-import random
-from datetime import datetime
-from typing import Any, Dict, Optional
-
-from csv_service import router as csv_router
-from email_service import router as email_router
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from note_service import router as note_router
 from pydantic import BaseModel, EmailStr
+from typing import Dict, Any, Optional
+import os
+import json
+import asyncio
+from datetime import datetime
+from playlist import router as playlist_router
+import random
+from email_service import router as email_router
+from note_service import router as note_router
 from version_service import router as version_router
 
 # Load environment variables from .env file (optional)
@@ -38,7 +37,7 @@ SHOTGRID_URL = os.environ.get("SHOTGRID_URL")
 shotgrid_enabled = bool(SHOTGRID_URL and SHOTGRID_URL.strip())
 
 # Register core routers
-app.include_router(csv_router)
+app.include_router(playlist_router)
 app.include_router(email_router)
 app.include_router(note_router)
 app.include_router(version_router)
