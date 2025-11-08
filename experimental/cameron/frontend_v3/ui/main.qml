@@ -17,6 +17,7 @@ ApplicationWindow {
     // Visibility states for sections
     property bool topSectionVisible: true
     property bool versionsListVisible: true
+    property int versionListWidth: 320
 
     // Keyboard shortcut for theme customizer
     Shortcut {
@@ -42,6 +43,17 @@ ApplicationWindow {
         sequence: "Ctrl+Shift+S"
         onActivated: {
             console.log("Toggle versions list - current state:", versionsListVisible)
+
+            // If showing the versions list, expand window to the left
+            if (!versionsListVisible) {
+                root.x = root.x - versionListWidth
+                root.width = root.width + versionListWidth
+            } else {
+                // If hiding, shrink window from the left (move x right, decrease width)
+                root.x = root.x + versionListWidth
+                root.width = root.width - versionListWidth
+            }
+
             versionsListVisible = !versionsListVisible
             console.log("Toggle versions list - new state:", versionsListVisible)
         }
@@ -576,6 +588,22 @@ ApplicationWindow {
                         model: versionModel
                         spacing: 8
                         clip: true
+                        currentIndex: 0
+
+                        Component.onCompleted: {
+                            if (versionModel.rowCount() > 0) {
+                                currentIndex = 0
+                            }
+                        }
+
+                        Connections {
+                            target: backend
+                            function onVersionsLoaded() {
+                                if (versionListView.count > 0) {
+                                    versionListView.currentIndex = 0
+                                }
+                            }
+                        }
 
                         delegate: ItemDelegate {
                             width: versionListView.width - 16  // Reserve space for scrollbar
@@ -659,7 +687,7 @@ ApplicationWindow {
                         }
 
                         TabButton {
-                            text: "User Notes"
+                            text: "Summary"
                             background: Rectangle {
                                 color: tabBar.currentIndex === 0 ? themeManager.accentColor : "#3a3a3a"
                                 radius: 6
@@ -687,34 +715,90 @@ ApplicationWindow {
                         }
                     }
 
-                    // Split view with tab content and staging area
+                    // Split view with AI notes and notes entry
                     SplitView {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.minimumHeight: 200
                         orientation: Qt.Vertical
 
-                        // Top section - tab content (User Notes or Transcript)
+                        // Top section - AI Generated Notes or Transcript
                         StackLayout {
                             SplitView.fillHeight: true
                             SplitView.minimumHeight: 100
                             currentIndex: tabBar.currentIndex
 
-                            // User Notes tab - Sent notes display
-                            ScrollView {
-                                TextArea {
-                                    id: sentNotesArea
-                                    text: backend.currentNotes
-                                    readOnly: true
-                                    wrapMode: TextArea.Wrap
-                                    color: themeManager.textColor
-                                    placeholderText: "Sent notes will appear here..."
+                            // Notes tab - AI Generated notes display
+                            Item {
+                                ScrollView {
+                                    anchors.fill: parent
 
-                                    background: Rectangle {
-                                        color: themeManager.inputBackground
-                                        border.color: themeManager.borderColor
-                                        border.width: 1
-                                        radius: 6
+                                    TextArea {
+                                        id: aiNotesArea
+                                        text: backend.currentAiNotes || ""
+                                        readOnly: true
+                                        wrapMode: TextArea.Wrap
+                                        color: themeManager.textColor
+                                        placeholderText: "AI generated notes will appear here..."
+                                        rightPadding: 120  // Make room for buttons
+
+                                        background: Rectangle {
+                                            color: themeManager.inputBackground
+                                            border.color: themeManager.borderColor
+                                            border.width: 1
+                                            radius: 6
+                                        }
+                                    }
+                                }
+
+                                // AI control buttons overlaid in bottom-right corner
+                                RowLayout {
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    anchors.margins: 8
+                                    spacing: 8
+
+                                    Button {
+                                        text: "↻"
+                                        width: 40
+                                        height: 40
+                                        onClicked: backend.generateNotes()
+
+                                        background: Rectangle {
+                                            color: parent.hovered ? themeManager.accentHover : themeManager.accentColor
+                                            radius: 6
+                                        }
+
+                                        contentItem: Text {
+                                            text: parent.text
+                                            color: themeManager.textColor
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            font.pixelSize: 18
+                                        }
+                                    }
+
+                                    Button {
+                                        text: "Add"
+                                        width: 70
+                                        height: 40
+                                        onClicked: {
+                                            var textToAdd = aiNotesArea.text || aiNotesArea.placeholderText
+                                            backend.addAiNotesText(textToAdd)
+                                        }
+
+                                        background: Rectangle {
+                                            color: parent.hovered ? themeManager.accentHover : themeManager.accentColor
+                                            radius: 6
+                                        }
+
+                                        contentItem: Text {
+                                            text: parent.text
+                                            color: themeManager.textColor
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            font.pixelSize: 18
+                                        }
                                     }
                                 }
                             }
@@ -738,126 +822,28 @@ ApplicationWindow {
                             }
                         }
 
-                        // AI Notes sliver - in the middle
-                        Rectangle {
-                            SplitView.fillWidth: true
-                            SplitView.preferredHeight: 50
-                            SplitView.minimumHeight: 50
-                            SplitView.maximumHeight: 50
-                            color: themeManager.cardBackground
-                            border.color: themeManager.borderColor
-                            border.width: 1
-                            radius: 6
-
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.margins: 12
-                                spacing: 8
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: backend.currentAiNotes || "No AI notes generated yet"
-                                    color: backend.currentAiNotes ? themeManager.textColor : themeManager.mutedTextColor
-                                    elide: Text.ElideRight
-                                    font.pixelSize: 12
-                                }
-
-                                Button {
-                                    text: "↻"
-                                    onClicked: backend.generateNotes()
-
-                                    background: Rectangle {
-                                        color: parent.hovered ? "#3a3a3a" : themeManager.cardBackground
-                                        radius: 4
-                                    }
-
-                                    contentItem: Text {
-                                        text: parent.text
-                                        color: themeManager.textColor
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                }
-
-                                Button {
-                                    text: "Add"
-                                    enabled: backend.currentAiNotes !== ""
-                                    onClicked: backend.addAiNotesToStaging()
-
-                                    background: Rectangle {
-                                        color: parent.hovered ? "#3a3a3a" : themeManager.cardBackground
-                                        radius: 4
-                                    }
-
-                                    contentItem: Text {
-                                        text: parent.text
-                                        color: parent.enabled ? themeManager.textColor : "#555555"
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                }
-                            }
-                        }
-
-                        // Staging area with overlay send button - always visible at bottom
-                        Item {
+                        // Notes entry area - always visible at bottom
+                        ScrollView {
                             SplitView.fillHeight: true
                             SplitView.minimumHeight: 80
                             SplitView.preferredHeight: 120
 
-                            ScrollView {
-                                anchors.fill: parent
+                            TextArea {
+                                id: notesEntryArea
+                                text: backend.currentVersionNote
+                                wrapMode: TextArea.Wrap
+                                color: themeManager.textColor
+                                placeholderText: "Type your notes here..."
 
-                                TextArea {
-                                    id: stagingArea
-                                    text: backend.stagingNote
-                                    wrapMode: TextArea.Wrap
-                                    color: themeManager.textColor
-                                    placeholderText: "Type your note here..."
-                                    rightPadding: 80  // Make room for the button
-
-                                    onTextChanged: {
-                                        backend.stagingNote = text
-                                    }
-
-                                    background: Rectangle {
-                                        color: themeManager.inputBackground
-                                        border.color: themeManager.borderColor
-                                        border.width: 1
-                                        radius: 6
-                                    }
-                                }
-                            }
-
-                            // Send button overlaid in bottom-right corner
-                            Button {
-                                text: "Send"
-                                enabled: backend.stagingNote.trim() !== ""
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                anchors.margins: 8
-                                width: 70
-                                height: 32
-
-                                onClicked: {
-                                    // Save note to the currently selected version
-                                    backend.saveNoteToVersion(backend.stagingNote)
-
-                                    // Clear staging area
-                                    stagingArea.text = ""
+                                onTextChanged: {
+                                    backend.updateVersionNote(text)
                                 }
 
                                 background: Rectangle {
-                                    color: parent.enabled ? (parent.hovered ? themeManager.accentHover : themeManager.accentColor) : "#3a3a3a"
+                                    color: themeManager.inputBackground
+                                    border.color: themeManager.borderColor
+                                    border.width: 1
                                     radius: 6
-                                }
-
-                                contentItem: Text {
-                                    text: parent.text
-                                    color: parent.enabled ? themeManager.textColor : "#555555"
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                    font.pixelSize: 14
                                 }
                             }
                         }
