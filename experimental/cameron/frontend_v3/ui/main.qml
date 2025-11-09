@@ -74,6 +74,66 @@ ApplicationWindow {
         }
     }
 
+    // Keyboard shortcut to go to next version
+    Shortcut {
+        sequence: "Ctrl+Shift+Down"
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            if (versionListView && versionListView.currentIndex < versionListView.count - 1) {
+                versionListView.currentIndex++
+                var item = versionListView.currentItem
+                if (item) {
+                    item.clicked()
+                }
+            }
+        }
+    }
+
+    // Keyboard shortcut to go to previous version
+    Shortcut {
+        sequence: "Ctrl+Shift+Up"
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            if (versionListView && versionListView.currentIndex > 0) {
+                versionListView.currentIndex--
+                var item = versionListView.currentItem
+                if (item) {
+                    item.clicked()
+                }
+            }
+        }
+    }
+
+    // Keyboard shortcut to add AI notes to notes
+    Shortcut {
+        sequence: "Ctrl+Shift+A"
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            var textToAdd = aiNotesArea.text || aiNotesArea.placeholderText
+            backend.addAiNotesText(textToAdd)
+        }
+    }
+
+    // Keyboard shortcut to regenerate AI notes
+    Shortcut {
+        sequence: "Ctrl+Shift+R"
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            backend.generateNotes()
+        }
+    }
+
+    // Keyboard shortcut to toggle between Notes and Transcript
+    Shortcut {
+        sequence: "Ctrl+Shift+F"
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            if (tabBar) {
+                tabBar.currentIndex = (tabBar.currentIndex === 0) ? 1 : 0
+            }
+        }
+    }
+
     // Theme Manager (singleton-like object)
     QtObject {
         id: themeManager
@@ -339,6 +399,15 @@ ApplicationWindow {
                                         color: themeManager.textColor
                                         wrapMode: TextArea.Wrap
 
+                                        Keys.onPressed: function(event) {
+                                            if (event.modifiers === (Qt.ControlModifier | Qt.ShiftModifier)) {
+                                                if (event.key === Qt.Key_Up || event.key === Qt.Key_Down ||
+                                                    event.key === Qt.Key_A || event.key === Qt.Key_R || event.key === Qt.Key_F) {
+                                                    event.accepted = false
+                                                }
+                                            }
+                                        }
+
                                         background: Rectangle {
                                             color: themeManager.inputBackground
                                             border.color: themeManager.borderColor
@@ -366,6 +435,15 @@ ApplicationWindow {
                                         color: themeManager.textColor
                                         wrapMode: TextArea.Wrap
 
+                                        Keys.onPressed: function(event) {
+                                            if (event.modifiers === (Qt.ControlModifier | Qt.ShiftModifier)) {
+                                                if (event.key === Qt.Key_Up || event.key === Qt.Key_Down ||
+                                                    event.key === Qt.Key_A || event.key === Qt.Key_R || event.key === Qt.Key_F) {
+                                                    event.accepted = false
+                                                }
+                                            }
+                                        }
+
                                         background: Rectangle {
                                             color: themeManager.inputBackground
                                             border.color: themeManager.borderColor
@@ -392,6 +470,15 @@ ApplicationWindow {
                                         text: backend.geminiPrompt
                                         color: themeManager.textColor
                                         wrapMode: TextArea.Wrap
+
+                                        Keys.onPressed: function(event) {
+                                            if (event.modifiers === (Qt.ControlModifier | Qt.ShiftModifier)) {
+                                                if (event.key === Qt.Key_Up || event.key === Qt.Key_Down ||
+                                                    event.key === Qt.Key_A || event.key === Qt.Key_R || event.key === Qt.Key_F) {
+                                                    event.accepted = false
+                                                }
+                                            }
+                                        }
 
                                         background: Rectangle {
                                             color: themeManager.inputBackground
@@ -732,6 +819,13 @@ ApplicationWindow {
                                 font.pixelSize: 18
                                 font.bold: true
                                 color: themeManager.textColor
+
+                                Connections {
+                                    target: backend
+                                    function onSelectedVersionNameChanged() {
+                                        console.log("Version name changed to:", backend.selectedVersionName)
+                                    }
+                                }
                             }
 
                             Text {
@@ -903,6 +997,23 @@ ApplicationWindow {
 
                                 onTextChanged: {
                                     backend.updateVersionNote(text)
+                                }
+
+                                Keys.onPressed: function(event) {
+                                    // Allow shortcuts to work even when text area has focus
+                                    if (event.modifiers === (Qt.ControlModifier | Qt.ShiftModifier)) {
+                                        if (event.key === Qt.Key_Up) {
+                                            event.accepted = false  // Let the shortcut handle it
+                                        } else if (event.key === Qt.Key_Down) {
+                                            event.accepted = false  // Let the shortcut handle it
+                                        } else if (event.key === Qt.Key_A) {
+                                            event.accepted = false
+                                        } else if (event.key === Qt.Key_R) {
+                                            event.accepted = false
+                                        } else if (event.key === Qt.Key_F) {
+                                            event.accepted = false
+                                        }
+                                    }
                                 }
 
                                 background: Rectangle {
@@ -1272,6 +1383,20 @@ ApplicationWindow {
                         verticalAlignment: Text.AlignVCenter
                     }
                 }
+
+                TabButton {
+                    text: "Key Bindings"
+                    background: Rectangle {
+                        color: parent.checked ? themeManager.accentColor : (parent.hovered ? "#555555" : themeManager.cardBackground)
+                        radius: 4
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.checked ? "white" : themeManager.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
             }
 
             // Stack Layout for tab content
@@ -1567,6 +1692,167 @@ ApplicationWindow {
                                     border.width: 1
                                     radius: 4
                                 }
+                            }
+                        }
+
+                        Item { Layout.fillHeight: true }
+                    }
+                }
+
+                // Key Bindings Tab
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+
+                    ColumnLayout {
+                        width: parent.parent.width - 40
+                        spacing: 15
+
+                        Text {
+                            text: "Keyboard Shortcuts"
+                            font.pixelSize: 16
+                            font.bold: true
+                            color: themeManager.textColor
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: themeManager.borderColor
+                        }
+
+                        // Key bindings list
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: 20
+                            rowSpacing: 12
+
+                            // Theme Customizer
+                            Text {
+                                text: "Open Theme Customizer:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                                Layout.alignment: Qt.AlignRight
+                            }
+                            Text {
+                                text: "Ctrl+Shift+T"
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: themeManager.accentColor
+                            }
+
+                            // Preferences
+                            Text {
+                                text: "Open Preferences:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                                Layout.alignment: Qt.AlignRight
+                            }
+                            Text {
+                                text: "Ctrl+Shift+P"
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: themeManager.accentColor
+                            }
+
+                            // Toggle Upper Widgets
+                            Text {
+                                text: "Toggle Upper Widgets:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                                Layout.alignment: Qt.AlignRight
+                            }
+                            Text {
+                                text: "Ctrl+Shift+U"
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: themeManager.accentColor
+                            }
+
+                            // Toggle Versions List
+                            Text {
+                                text: "Toggle Versions List:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                                Layout.alignment: Qt.AlignRight
+                            }
+                            Text {
+                                text: "Ctrl+Shift+S"
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: themeManager.accentColor
+                            }
+
+                            // Previous Version
+                            Text {
+                                text: "Previous Version:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                                Layout.alignment: Qt.AlignRight
+                            }
+                            Text {
+                                text: "Ctrl+Shift+Up"
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: themeManager.accentColor
+                            }
+
+                            // Next Version
+                            Text {
+                                text: "Next Version:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                                Layout.alignment: Qt.AlignRight
+                            }
+                            Text {
+                                text: "Ctrl+Shift+Down"
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: themeManager.accentColor
+                            }
+
+                            // Add AI Notes
+                            Text {
+                                text: "Add AI Notes to Notes:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                                Layout.alignment: Qt.AlignRight
+                            }
+                            Text {
+                                text: "Ctrl+Shift+A"
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: themeManager.accentColor
+                            }
+
+                            // Regenerate AI Notes
+                            Text {
+                                text: "Regenerate AI Notes:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                                Layout.alignment: Qt.AlignRight
+                            }
+                            Text {
+                                text: "Ctrl+Shift+R"
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: themeManager.accentColor
+                            }
+
+                            // Toggle Notes/Transcript
+                            Text {
+                                text: "Toggle Notes/Transcript:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                                Layout.alignment: Qt.AlignRight
+                            }
+                            Text {
+                                text: "Ctrl+Shift+F"
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: themeManager.accentColor
                             }
                         }
 
