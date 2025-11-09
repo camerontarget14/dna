@@ -2041,9 +2041,13 @@ ApplicationWindow {
             MouseArea {
                 anchors.fill: parent
                 onClicked: {
-                    colorDialog.currentColor = currentColor
-                    colorDialog.targetPicker = parent.parent
-                    colorDialog.open()
+                    // Store reference to the picker
+                    colorPickerService.colorSelected.connect(function(hexColor) {
+                        colorChanged(hexColor)
+                        colorPickerService.colorSelected.disconnect(arguments.callee)
+                    })
+                    // Show RPA color picker
+                    colorPickerService.showColorPicker(currentColor.toString())
                 }
             }
         }
