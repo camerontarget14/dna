@@ -8,7 +8,7 @@ ApplicationWindow {
     visible: true
     width: 1400
     height: 800
-    minimumWidth: versionsListVisible ? 800 : 450
+    minimumWidth: topSectionVisible ? 1100 : (versionsListVisible ? 800 : 450)
     minimumHeight: 750
     title: "Dailies Notes Assistant"
 
@@ -22,9 +22,14 @@ ApplicationWindow {
     // Keyboard shortcut for theme customizer
     Shortcut {
         sequence: "Ctrl+Shift+T"
+        context: Qt.ApplicationShortcut
         onActivated: {
             console.log("Theme customizer shortcut activated")
-            themeCustomizer.open()
+            if (themeCustomizer.opened) {
+                themeCustomizer.close()
+            } else {
+                themeCustomizer.open()
+            }
         }
     }
 
@@ -71,6 +76,76 @@ ApplicationWindow {
         property color mutedTextColor: "#888888"
         property color inputBackground: "#1a1a1a"
         property int borderRadius: 8
+    }
+
+    // Menu Bar
+    menuBar: MenuBar {
+        Menu {
+            title: "File"
+
+            MenuItem {
+                text: "Import CSV..."
+                onTriggered: csvImportDialog.open()
+            }
+
+            MenuItem {
+                text: "Export CSV..."
+                onTriggered: csvExportDialog.open()
+            }
+
+            MenuSeparator {}
+
+            MenuItem {
+                text: "Reset Workspace"
+                onTriggered: resetWorkspaceDialog.open()
+            }
+
+            MenuSeparator {}
+
+            MenuItem {
+                text: "Exit"
+                onTriggered: Qt.quit()
+            }
+        }
+
+        Menu {
+            title: "View"
+
+            MenuItem {
+                text: topSectionVisible ? "Hide Upper Widgets" : "Show Upper Widgets"
+                onTriggered: topSectionVisible = !topSectionVisible
+            }
+
+            MenuItem {
+                text: versionsListVisible ? "Hide Versions List" : "Show Versions List"
+                onTriggered: {
+                    if (!versionsListVisible) {
+                        root.x = root.x - versionListWidth
+                        root.width = root.width + versionListWidth
+                    } else {
+                        root.x = root.x + versionListWidth
+                        root.width = root.width - versionListWidth
+                    }
+                    versionsListVisible = !versionsListVisible
+                }
+            }
+
+            MenuSeparator {}
+
+            MenuItem {
+                text: "Theme Customizer..."
+                onTriggered: themeCustomizer.open()
+            }
+        }
+
+        Menu {
+            title: "Help"
+
+            MenuItem {
+                text: "About"
+                onTriggered: aboutDialog.open()
+            }
+        }
     }
 
     // Main layout
@@ -1046,6 +1121,170 @@ ApplicationWindow {
         }
     }
 
+    // Reset Workspace Confirmation Dialog
+    Dialog {
+        id: resetWorkspaceDialog
+        modal: true
+        anchors.centerIn: parent
+        width: 400
+        title: "Reset Workspace"
+
+        background: Rectangle {
+            color: themeManager.cardBackground
+            border.color: themeManager.borderColor
+            border.width: 1
+            radius: 8
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 20
+
+            Text {
+                text: "⚠️ Warning"
+                font.pixelSize: 18
+                font.bold: true
+                color: "#f57c00"
+                Layout.alignment: Qt.AlignHCenter
+            }
+
+            Text {
+                text: "Are you sure you want to reset the workspace?\n\nThis will remove all versions and notes. This action cannot be undone."
+                font.pixelSize: 13
+                color: themeManager.textColor
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                Button {
+                    text: "Cancel"
+                    Layout.fillWidth: true
+
+                    onClicked: {
+                        resetWorkspaceDialog.close()
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered ? "#3a3a3a" : themeManager.cardBackground
+                        radius: 6
+                        border.color: themeManager.borderColor
+                        border.width: 1
+                    }
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: themeManager.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font.pixelSize: 14
+                    }
+                }
+
+                Button {
+                    text: "Reset"
+                    Layout.fillWidth: true
+
+                    onClicked: {
+                        backend.resetWorkspace()
+                        resetWorkspaceDialog.close()
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered ? "#d32f2f" : "#f44336"
+                        radius: 6
+                    }
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: "#ffffff"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font.pixelSize: 14
+                    }
+                }
+            }
+        }
+    }
+
+    // About Dialog
+    Dialog {
+        id: aboutDialog
+        modal: true
+        anchors.centerIn: parent
+        width: 400
+        title: "About Dailies Notes Assistant"
+
+        background: Rectangle {
+            color: themeManager.cardBackground
+            border.color: themeManager.borderColor
+            border.width: 1
+            radius: 8
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 16
+
+            Text {
+                text: "DNA Dailies Notes Assistant"
+                font.pixelSize: 20
+                font.bold: true
+                color: themeManager.textColor
+                Layout.alignment: Qt.AlignHCenter
+            }
+
+            Text {
+                text: "Version 3.0"
+                font.pixelSize: 14
+                color: themeManager.mutedTextColor
+                Layout.alignment: Qt.AlignHCenter
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                color: themeManager.borderColor
+            }
+
+            Text {
+                text: "A Qt-based desktop application for managing dailies notes with AI assistance and collaboration features."
+                font.pixelSize: 12
+                color: themeManager.textColor
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Button {
+                text: "Close"
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 100
+
+                onClicked: {
+                    aboutDialog.close()
+                }
+
+                background: Rectangle {
+                    color: parent.hovered ? themeManager.accentHover : themeManager.accentColor
+                    radius: 6
+                }
+
+                contentItem: Text {
+                    text: parent.text
+                    color: themeManager.textColor
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    font.pixelSize: 14
+                }
+            }
+        }
+    }
+
     // CSV Import Dialog
     FileDialog {
         id: csvImportDialog
@@ -1128,12 +1367,47 @@ ApplicationWindow {
         id: colorDialog
         modal: true
         anchors.centerIn: parent
-        width: 400
-        height: 500
+        width: 450
+        height: 650
         title: "Pick a Color"
 
         property color currentColor: "#000000"
         property var targetPicker: null
+
+        property real hue: 0
+        property real saturation: 1
+        property real lightness: 0.5
+
+        function hslToColor(h, s, l) {
+            var c = (1 - Math.abs(2 * l - 1)) * s
+            var x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+            var m = l - c / 2
+            var r = 0, g = 0, b = 0
+
+            if (h >= 0 && h < 60) {
+                r = c; g = x; b = 0
+            } else if (h >= 60 && h < 120) {
+                r = x; g = c; b = 0
+            } else if (h >= 120 && h < 180) {
+                r = 0; g = c; b = x
+            } else if (h >= 180 && h < 240) {
+                r = 0; g = x; b = c
+            } else if (h >= 240 && h < 300) {
+                r = x; g = 0; b = c
+            } else {
+                r = c; g = 0; b = x
+            }
+
+            r = Math.round((r + m) * 255)
+            g = Math.round((g + m) * 255)
+            b = Math.round((b + m) * 255)
+
+            return Qt.rgba(r / 255, g / 255, b / 255, 1)
+        }
+
+        function updateColorFromHSL() {
+            currentColor = hslToColor(hue, saturation, lightness)
+        }
 
         background: Rectangle {
             color: themeManager.cardBackground
@@ -1156,6 +1430,150 @@ ApplicationWindow {
                 border.width: 1
             }
 
+            // Color Wheel
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 250
+                Layout.alignment: Qt.AlignHCenter
+
+                // Saturation/Lightness square
+                Rectangle {
+                    id: colorSquare
+                    width: 250
+                    height: 250
+                    anchors.centerIn: parent
+
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0.0; color: "#ffffff" }
+                        GradientStop { position: 1.0; color: colorDialog.hslToColor(colorDialog.hue, 1.0, 0.5) }
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        gradient: Gradient {
+                            orientation: Gradient.Vertical
+                            GradientStop { position: 0.0; color: "#00000000" }
+                            GradientStop { position: 1.0; color: "#000000" }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onPressed: function(mouse) {
+                            colorDialog.saturation = mouse.x / width
+                            colorDialog.lightness = 1 - (mouse.y / height)
+                            colorDialog.updateColorFromHSL()
+                        }
+                        onPositionChanged: function(mouse) {
+                            if (pressed) {
+                                colorDialog.saturation = Math.max(0, Math.min(1, mouse.x / width))
+                                colorDialog.lightness = Math.max(0, Math.min(1, 1 - (mouse.y / height)))
+                                colorDialog.updateColorFromHSL()
+                            }
+                        }
+                    }
+
+                    // Selection indicator
+                    Rectangle {
+                        x: colorDialog.saturation * parent.width - 5
+                        y: (1 - colorDialog.lightness) * parent.height - 5
+                        width: 10
+                        height: 10
+                        radius: 5
+                        border.color: "#ffffff"
+                        border.width: 2
+                        color: "transparent"
+                    }
+                }
+            }
+
+            // Hue slider
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                Text {
+                    text: "Hue:"
+                    color: themeManager.textColor
+                    font.pixelSize: 14
+                    Layout.preferredWidth: 50
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 30
+                    radius: 4
+
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0.0; color: "#ff0000" }
+                        GradientStop { position: 0.166; color: "#ffff00" }
+                        GradientStop { position: 0.333; color: "#00ff00" }
+                        GradientStop { position: 0.5; color: "#00ffff" }
+                        GradientStop { position: 0.666; color: "#0000ff" }
+                        GradientStop { position: 0.833; color: "#ff00ff" }
+                        GradientStop { position: 1.0; color: "#ff0000" }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onPressed: function(mouse) {
+                            colorDialog.hue = (mouse.x / width) * 360
+                            colorDialog.updateColorFromHSL()
+                        }
+                        onPositionChanged: function(mouse) {
+                            if (pressed) {
+                                colorDialog.hue = Math.max(0, Math.min(360, (mouse.x / width) * 360))
+                                colorDialog.updateColorFromHSL()
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        x: (colorDialog.hue / 360) * parent.width - 2
+                        y: -2
+                        width: 4
+                        height: parent.height + 4
+                        color: "#ffffff"
+                        border.color: "#000000"
+                        border.width: 1
+                    }
+                }
+            }
+
+            // Hex input
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Text {
+                    text: "Hex:"
+                    color: themeManager.textColor
+                    font.pixelSize: 14
+                }
+
+                TextField {
+                    id: hexInput
+                    Layout.fillWidth: true
+                    text: colorDialog.currentColor.toString()
+                    color: themeManager.textColor
+
+                    background: Rectangle {
+                        color: themeManager.inputBackground
+                        border.color: themeManager.borderColor
+                        border.width: 1
+                        radius: 4
+                    }
+
+                    onEditingFinished: {
+                        if (text.match(/^#[0-9A-Fa-f]{6}$/)) {
+                            colorDialog.currentColor = text
+                        }
+                    }
+                }
+            }
+
             // Preset colors
             GridLayout {
                 Layout.fillWidth: true
@@ -1173,9 +1591,9 @@ ApplicationWindow {
 
                     Rectangle {
                         Layout.preferredWidth: 50
-                        Layout.preferredHeight: 50
+                        Layout.preferredHeight: 40
                         color: modelData
-                        radius: 6
+                        radius: 4
                         border.color: themeManager.borderColor
                         border.width: 1
 
@@ -1184,37 +1602,6 @@ ApplicationWindow {
                             onClicked: {
                                 colorDialog.currentColor = modelData
                             }
-                        }
-                    }
-                }
-            }
-
-            // Hex input
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 8
-
-                Text {
-                    text: "Hex:"
-                    color: themeManager.textColor
-                    font.pixelSize: 14
-                }
-
-                TextField {
-                    Layout.fillWidth: true
-                    text: colorDialog.currentColor
-                    color: themeManager.textColor
-
-                    background: Rectangle {
-                        color: themeManager.inputBackground
-                        border.color: themeManager.borderColor
-                        border.width: 1
-                        radius: 4
-                    }
-
-                    onTextChanged: {
-                        if (text.match(/^#[0-9A-Fa-f]{6}$/)) {
-                            colorDialog.currentColor = text
                         }
                     }
                 }
@@ -1271,6 +1658,78 @@ ApplicationWindow {
                         verticalAlignment: Text.AlignVCenter
                         font.pixelSize: 14
                     }
+                }
+            }
+        }
+    }
+
+    // Global CSV Drag-and-Drop Overlay
+    DropArea {
+        id: globalDropArea
+        anchors.fill: parent
+
+        property bool isDraggingCsv: false
+
+        onEntered: function(drag) {
+            if (drag.hasUrls) {
+                var url = drag.urls[0].toString()
+                if (url.toLowerCase().endsWith('.csv')) {
+                    isDraggingCsv = true
+                    drag.accept(Qt.CopyAction)
+                }
+            }
+        }
+
+        onExited: {
+            isDraggingCsv = false
+        }
+
+        onDropped: function(drop) {
+            isDraggingCsv = false
+            if (drop.hasUrls && drop.urls.length > 0) {
+                var filePath = drop.urls[0]
+                if (filePath.toString().toLowerCase().endsWith('.csv')) {
+                    backend.importCSV(filePath)
+                    drop.accept(Qt.CopyAction)
+                }
+            }
+        }
+
+        // Dark overlay with message
+        Rectangle {
+            anchors.fill: parent
+            color: "#000000"
+            opacity: globalDropArea.isDraggingCsv ? 0.8 : 0
+            visible: opacity > 0
+
+            Behavior on opacity {
+                NumberAnimation { duration: 200 }
+            }
+
+            ColumnLayout {
+                anchors.centerIn: parent
+                spacing: 20
+
+                Text {
+                    text: "📄"
+                    font.pixelSize: 72
+                    color: "#ffffff"
+                    Layout.alignment: Qt.AlignHCenter
+                }
+
+                Text {
+                    text: "Import CSV"
+                    font.pixelSize: 36
+                    font.bold: true
+                    color: "#ffffff"
+                    Layout.alignment: Qt.AlignHCenter
+                }
+
+                Text {
+                    text: "Drop your CSV file here"
+                    font.pixelSize: 18
+                    color: "#cccccc"
+                    Layout.alignment: Qt.AlignHCenter
                 }
             }
         }

@@ -5,7 +5,7 @@ ONLY uses backend API - no local storage
 """
 
 import requests
-from PySide6.QtCore import QObject, Signal, Property, Slot
+from PySide6.QtCore import Property, QObject, Signal, Slot
 
 
 class BackendService(QObject):
@@ -400,6 +400,40 @@ class BackendService(QObject):
         """Capture a screenshot (placeholder for now)"""
         print("📷 Screenshot capture requested")
         # TODO: Implement screenshot capture functionality
+
+    @Slot()
+    def resetWorkspace(self):
+        """Reset workspace - clear all versions and notes"""
+        print("Resetting workspace...")
+
+        try:
+            # Clear all versions via backend API
+            response = self._make_request("DELETE", "/versions")
+
+            # Clear local state
+            self._selected_version_id = None
+            self._selected_version_name = ""
+            self._current_notes = ""
+            self._current_ai_notes = ""
+            self._current_transcript = ""
+            self._staging_note = ""
+            self._current_version_note = ""
+            self._version_notes.clear()
+
+            # Emit signals to update UI
+            self.selectedVersionIdChanged.emit()
+            self.selectedVersionNameChanged.emit()
+            self.currentNotesChanged.emit()
+            self.currentAiNotesChanged.emit()
+            self.currentTranscriptChanged.emit()
+            self.stagingNoteChanged.emit()
+            self.currentVersionNoteChanged.emit()
+            self.versionsLoaded.emit()
+
+            print("✓ Workspace reset successfully")
+
+        except Exception as e:
+            print(f"ERROR: Failed to reset workspace: {e}")
 
     # ===== CSV Import/Export =====
 
