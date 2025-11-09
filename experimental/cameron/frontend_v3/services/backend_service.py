@@ -5,7 +5,9 @@ ONLY uses backend API - no local storage
 """
 
 import requests
-from PySide6.QtCore import Property, QObject, Signal, Slot
+from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
+
+from services.vexa_service import VexaService
 
 
 class BackendService(QObject):
@@ -27,15 +29,23 @@ class BackendService(QObject):
     openaiPromptChanged = Signal()
     claudeApiKeyChanged = Signal()
     claudePromptChanged = Signal()
-    llamaApiKeyChanged = Signal()
-    llamaPromptChanged = Signal()
+    geminiApiKeyChanged = Signal()
+    geminiPromptChanged = Signal()
 
     # ShotGrid
     shotgridProjectsChanged = Signal()
     shotgridPlaylistsChanged = Signal()
+    shotgridWebUrlChanged = Signal()
+    shotgridApiKeyChanged = Signal()
+    shotgridScriptNameChanged = Signal()
 
     # Versions
     versionsLoaded = Signal()
+
+    # Vexa/Meeting signals
+    meetingStatusChanged = Signal()
+    vexaApiKeyChanged = Signal()
+    vexaApiUrlChanged = Signal()
 
     def __init__(self, backend_url="http://localhost:8000"):
         super().__init__()
@@ -45,6 +55,17 @@ class BackendService(QObject):
         # User info
         self._user_name = ""
         self._meeting_id = ""
+
+        # Vexa integration
+        self._vexa_api_key = ""
+        self._vexa_api_url = "https://devapi.dev.vexa.ai"
+        self._vexa_service = None
+        self._meeting_active = False
+        self._meeting_status = (
+            "disconnected"  # disconnected, connecting, connected, error
+        )
+        self._current_meeting_id = ""
+        self._transcription_timer = None
 
         # Current version
         self._selected_version_id = None
@@ -61,16 +82,25 @@ class BackendService(QObject):
         self._openai_prompt = ""
         self._claude_api_key = ""
         self._claude_prompt = ""
-        self._llama_api_key = ""
-        self._llama_prompt = ""
+        self._gemini_api_key = ""
+        self._gemini_prompt = ""
 
         # ShotGrid
         self._shotgrid_projects = []
         self._shotgrid_playlists = []
+        self._shotgrid_projects_data = []
+        self._shotgrid_playlists_data = []
+        self._selected_playlist_id = None
+        self._shotgrid_web_url = ""
+        self._shotgrid_api_key = ""
+        self._shotgrid_script_name = ""
 
         # Per-version notes storage (version_id -> note_text)
         self._version_notes = {}
         self._current_version_note = ""
+
+        # Check if ShotGrid is enabled and load projects
+        self._check_shotgrid_enabled()
 
     def _check_backend_connection(self):
         """Check if backend is running"""
@@ -84,6 +114,21 @@ class BackendService(QObject):
             print(f"  Please start the backend server first!")
             print(f"  Error: {e}")
             return False
+
+    def _check_shotgrid_enabled(self):
+        """Check if ShotGrid is enabled and load projects if it is"""
+        try:
+            response = requests.get(f"{self._backend_url}/config", timeout=2)
+            if response.status_code == 200:
+                data = response.json()
+                shotgrid_enabled = data.get("shotgrid_enabled", False)
+                if shotgrid_enabled:
+                    print("✓ ShotGrid is enabled, loading projects...")
+                    self.loadShotGridProjects()
+                else:
+                    print("ShotGrid is not enabled")
+        except Exception as e:
+            print(f"Could not check ShotGrid status: {e}")
 
     def _make_request(self, method, endpoint, **kwargs):
         """Make a request to the backend API with error handling"""
@@ -197,25 +242,25 @@ class BackendService(QObject):
             self._claude_prompt = value
             self.claudePromptChanged.emit()
 
-    @Property(str, notify=llamaApiKeyChanged)
-    def llamaApiKey(self):
-        return self._llama_api_key
+    @Property(str, notify=geminiApiKeyChanged)
+    def geminiApiKey(self):
+        return self._gemini_api_key
 
-    @llamaApiKey.setter
-    def llamaApiKey(self, value):
-        if self._llama_api_key != value:
-            self._llama_api_key = value
-            self.llamaApiKeyChanged.emit()
+    @geminiApiKey.setter
+    def geminiApiKey(self, value):
+        if self._gemini_api_key != value:
+            self._gemini_api_key = value
+            self.geminiApiKeyChanged.emit()
 
-    @Property(str, notify=llamaPromptChanged)
-    def llamaPrompt(self):
-        return self._llama_prompt
+    @Property(str, notify=geminiPromptChanged)
+    def geminiPrompt(self):
+        return self._gemini_prompt
 
-    @llamaPrompt.setter
-    def llamaPrompt(self, value):
-        if self._llama_prompt != value:
-            self._llama_prompt = value
-            self.llamaPromptChanged.emit()
+    @geminiPrompt.setter
+    def geminiPrompt(self, value):
+        if self._gemini_prompt != value:
+            self._gemini_prompt = value
+            self.geminiPromptChanged.emit()
 
     # ===== Version Management =====
 
@@ -435,6 +480,203 @@ class BackendService(QObject):
         except Exception as e:
             print(f"ERROR: Failed to reset workspace: {e}")
 
+    # ===== Vexa/Meeting Integration =====
+
+    @Property(str, notify=vexaApiKeyChanged)
+    def vexaApiKey(self):
+        return self._vexa_api_key
+
+    @vexaApiKey.setter
+    def vexaApiKey(self, value):
+        if self._vexa_api_key != value:
+            self._vexa_api_key = value
+            self.vexaApiKeyChanged.emit()
+            # Reinitialize Vexa service with new key
+            if value:
+                self._vexa_service = VexaService(value, self._vexa_api_url)
+
+    @Property(str, notify=vexaApiUrlChanged)
+    def vexaApiUrl(self):
+        return self._vexa_api_url
+
+    @vexaApiUrl.setter
+    def vexaApiUrl(self, value):
+        if self._vexa_api_url != value:
+            self._vexa_api_url = value
+            self.vexaApiUrlChanged.emit()
+            # Reinitialize Vexa service with new URL
+            if self._vexa_api_key:
+                self._vexa_service = VexaService(self._vexa_api_key, value)
+
+    @Property(bool, notify=meetingStatusChanged)
+    def meetingActive(self):
+        return self._meeting_active
+
+    @Property(str, notify=meetingStatusChanged)
+    def meetingStatus(self):
+        return self._meeting_status
+
+    @Slot()
+    def joinMeeting(self):
+        """Join a meeting and start transcription"""
+        if not self._meeting_id or not self._vexa_api_key:
+            print("ERROR: Meeting ID or Vexa API key not set")
+            self._meeting_status = "error"
+            self.meetingStatusChanged.emit()
+            return
+
+        if not self._vexa_service:
+            self._vexa_service = VexaService(self._vexa_api_key, self._vexa_api_url)
+
+        # Set status to connecting
+        self._meeting_status = "connecting"
+        self.meetingStatusChanged.emit()
+
+        try:
+            print(f"\n=== Joining Meeting ===")
+            print(f"Meeting URL/ID: {self._meeting_id}")
+
+            result = self._vexa_service.start_transcription(
+                self._meeting_id, language="auto", bot_name="DNA Assistant"
+            )
+
+            if result.get("success"):
+                self._current_meeting_id = result.get("meeting_id", self._meeting_id)
+                self._meeting_active = True
+                self._meeting_status = "connected"
+                self.meetingStatusChanged.emit()
+
+                print(f"✓ Successfully joined meeting")
+                print(f"  Internal meeting ID: {self._current_meeting_id}")
+
+                # Start polling for transcription updates
+                self._start_transcription_polling()
+            else:
+                print(f"ERROR: Failed to join meeting")
+                self._meeting_status = "error"
+                self.meetingStatusChanged.emit()
+
+        except Exception as e:
+            print(f"ERROR: Failed to join meeting: {e}")
+            self._meeting_active = False
+            self._meeting_status = "error"
+            self.meetingStatusChanged.emit()
+
+    @Slot()
+    def leaveMeeting(self):
+        """Leave the current meeting and stop transcription"""
+        if not self._current_meeting_id:
+            print("ERROR: No active meeting")
+            return
+
+        if not self._vexa_service:
+            print("ERROR: Vexa service not initialized")
+            return
+
+        try:
+            print(f"\n=== Leaving Meeting ===")
+            print(f"Meeting ID: {self._current_meeting_id}")
+
+            result = self._vexa_service.stop_transcription(self._current_meeting_id)
+
+            if result.get("success"):
+                print(f"✓ Successfully left meeting")
+
+                # Stop polling
+                self._stop_transcription_polling()
+
+                self._meeting_active = False
+                self._meeting_status = "disconnected"
+                self._current_meeting_id = ""
+                self.meetingStatusChanged.emit()
+            else:
+                print(f"ERROR: Failed to leave meeting")
+                self._meeting_status = "error"
+                self.meetingStatusChanged.emit()
+
+        except Exception as e:
+            print(f"ERROR: Failed to leave meeting: {e}")
+            self._meeting_status = "error"
+            self.meetingStatusChanged.emit()
+
+    @Slot(str)
+    def updateTranscriptionLanguage(self, language):
+        """Update the transcription language"""
+        if not self._current_meeting_id:
+            print("ERROR: No active meeting")
+            return
+
+        if not self._vexa_service:
+            print("ERROR: Vexa service not initialized")
+            return
+
+        try:
+            print(f"Updating transcription language to: {language}")
+            result = self._vexa_service.update_language(
+                self._current_meeting_id, language
+            )
+
+            if result.get("success"):
+                print(f"✓ Language updated successfully")
+            else:
+                print(f"ERROR: Failed to update language")
+
+        except Exception as e:
+            print(f"ERROR: Failed to update language: {e}")
+
+    def _start_transcription_polling(self):
+        """Start polling for transcription updates"""
+        if self._transcription_timer:
+            self._transcription_timer.stop()
+
+        self._transcription_timer = QTimer()
+        self._transcription_timer.timeout.connect(self._poll_transcription)
+        self._transcription_timer.start(5000)  # Poll every 5 seconds
+
+        print("Started transcription polling (every 5 seconds)")
+
+        # Do initial fetch
+        self._poll_transcription()
+
+    def _stop_transcription_polling(self):
+        """Stop polling for transcription updates"""
+        if self._transcription_timer:
+            self._transcription_timer.stop()
+            self._transcription_timer = None
+            print("Stopped transcription polling")
+
+    def _poll_transcription(self):
+        """Poll for transcription updates"""
+        if not self._current_meeting_id or not self._vexa_service:
+            return
+
+        try:
+            transcription_data = self._vexa_service.get_transcription(
+                self._current_meeting_id
+            )
+
+            # Update transcript
+            segments = transcription_data.segments
+            if segments:
+                # Combine all segment texts into full transcript
+                full_text = "\n".join(
+                    [
+                        f"{seg.get('speaker', 'Unknown')}: {seg.get('text', '')}"
+                        for seg in segments
+                    ]
+                )
+
+                if full_text != self._current_transcript:
+                    self._current_transcript = full_text
+                    self.currentTranscriptChanged.emit()
+                    print(
+                        f"Transcript updated: {len(segments)} segments, {len(full_text)} chars"
+                    )
+
+        except Exception as e:
+            # Don't spam errors, transcription might not be ready yet
+            pass
+
     # ===== CSV Import/Export =====
 
     @Slot(str)
@@ -494,23 +736,184 @@ class BackendService(QObject):
     def shotgridPlaylists(self):
         return self._shotgrid_playlists
 
-    @Slot(str)
-    def loadShotGridProjects(self, site_url):
-        """Load ShotGrid projects"""
-        print(f"Loading ShotGrid projects from: {site_url}")
-        # TODO: Implement ShotGrid project loading
-        pass
+    @Property(str, notify=shotgridWebUrlChanged)
+    def shotgridWebUrl(self):
+        return self._shotgrid_web_url
 
-    @Slot(str, str)
-    def loadShotGridPlaylists(self, site_url, project_id):
+    @shotgridWebUrl.setter
+    def shotgridWebUrl(self, value):
+        if self._shotgrid_web_url != value:
+            self._shotgrid_web_url = value
+            self.shotgridWebUrlChanged.emit()
+            print(f"ShotGrid Web URL updated: {value}")
+
+    @Property(str, notify=shotgridApiKeyChanged)
+    def shotgridApiKey(self):
+        return self._shotgrid_api_key
+
+    @shotgridApiKey.setter
+    def shotgridApiKey(self, value):
+        if self._shotgrid_api_key != value:
+            self._shotgrid_api_key = value
+            self.shotgridApiKeyChanged.emit()
+            print("ShotGrid API Key updated")
+
+    @Property(str, notify=shotgridScriptNameChanged)
+    def shotgridScriptName(self):
+        return self._shotgrid_script_name
+
+    @shotgridScriptName.setter
+    def shotgridScriptName(self, value):
+        if self._shotgrid_script_name != value:
+            self._shotgrid_script_name = value
+            self.shotgridScriptNameChanged.emit()
+            print(f"ShotGrid Script Name updated: {value}")
+
+    @Slot()
+    def loadShotGridProjects(self):
+        """Load ShotGrid projects from backend API"""
+        print("Loading ShotGrid projects...")
+
+        try:
+            response = self._make_request("GET", "/shotgrid/active-projects")
+            data = response.json()
+
+            if data.get("status") == "success":
+                projects = data.get("projects", [])
+                # Convert to QML-friendly format (list of strings showing project code)
+                self._shotgrid_projects = [
+                    f"{p['code']} (ID: {p['id']})" for p in projects
+                ]
+                # Store full project data for later use
+                self._shotgrid_projects_data = projects
+                self.shotgridProjectsChanged.emit()
+
+                print(f"✓ Loaded {len(projects)} ShotGrid projects")
+            else:
+                print(f"ERROR: Failed to load projects: {data.get('message')}")
+                self._shotgrid_projects = []
+                self._shotgrid_projects_data = []
+                self.shotgridProjectsChanged.emit()
+
+        except Exception as e:
+            print(f"ERROR: Failed to load ShotGrid projects: {e}")
+            self._shotgrid_projects = []
+            self._shotgrid_projects_data = []
+            self.shotgridProjectsChanged.emit()
+
+    @Slot(int)
+    def selectShotgridProject(self, index):
+        """Select a ShotGrid project by index and load its playlists"""
+        if (
+            not hasattr(self, "_shotgrid_projects_data")
+            or index < 0
+            or index >= len(self._shotgrid_projects_data)
+        ):
+            print(f"ERROR: Invalid project index: {index}")
+            return
+
+        project = self._shotgrid_projects_data[index]
+        project_id = project["id"]
+        print(f"Selected ShotGrid project: {project['code']} (ID: {project_id})")
+
+        # Load playlists for this project
+        self.loadShotGridPlaylists(project_id)
+
+    @Slot(int)
+    def loadShotGridPlaylists(self, project_id):
         """Load ShotGrid playlists for a project"""
-        print(f"Loading ShotGrid playlists for project: {project_id}")
-        # TODO: Implement ShotGrid playlist loading
-        pass
+        print(f"Loading ShotGrid playlists for project ID: {project_id}")
 
-    @Slot(str, str, str)
-    def loadShotGridPlaylist(self, site_url, project_id, playlist_id):
-        """Load versions from a ShotGrid playlist"""
-        print(f"Loading ShotGrid playlist: {playlist_id}")
-        # TODO: Implement ShotGrid playlist loading
-        pass
+        try:
+            response = self._make_request(
+                "GET", f"/shotgrid/latest-playlists/{project_id}"
+            )
+            data = response.json()
+
+            if data.get("status") == "success":
+                playlists = data.get("playlists", [])
+                # Convert to QML-friendly format
+                self._shotgrid_playlists = [
+                    f"{p['code']} (ID: {p['id']})" for p in playlists
+                ]
+                # Store full playlist data for later use
+                self._shotgrid_playlists_data = playlists
+                self.shotgridPlaylistsChanged.emit()
+
+                print(f"✓ Loaded {len(playlists)} ShotGrid playlists")
+            else:
+                print(f"ERROR: Failed to load playlists: {data.get('message')}")
+                self._shotgrid_playlists = []
+                self._shotgrid_playlists_data = []
+                self.shotgridPlaylistsChanged.emit()
+
+        except Exception as e:
+            print(f"ERROR: Failed to load ShotGrid playlists: {e}")
+            self._shotgrid_playlists = []
+            self._shotgrid_playlists_data = []
+            self.shotgridPlaylistsChanged.emit()
+
+    @Slot(int)
+    def selectShotgridPlaylist(self, index):
+        """Select a ShotGrid playlist by index"""
+        if (
+            not hasattr(self, "_shotgrid_playlists_data")
+            or index < 0
+            or index >= len(self._shotgrid_playlists_data)
+        ):
+            print(f"ERROR: Invalid playlist index: {index}")
+            return
+
+        playlist = self._shotgrid_playlists_data[index]
+        self._selected_playlist_id = playlist["id"]
+        print(f"Selected ShotGrid playlist: {playlist['code']} (ID: {playlist['id']})")
+
+    @Slot()
+    def loadShotgridPlaylist(self):
+        """Load versions from the selected ShotGrid playlist"""
+        if not hasattr(self, "_selected_playlist_id") or not self._selected_playlist_id:
+            print("ERROR: No playlist selected")
+            return
+
+        playlist_id = self._selected_playlist_id
+        print(f"Loading versions from ShotGrid playlist ID: {playlist_id}")
+
+        try:
+            response = self._make_request(
+                "GET", f"/shotgrid/playlist-items/{playlist_id}"
+            )
+            data = response.json()
+
+            if data.get("status") == "success":
+                items = data.get("items", [])
+                print(f"✓ Loaded {len(items)} items from ShotGrid playlist")
+
+                # Create versions via backend API
+                for item in items:
+                    # Item format is "shot_name/version_name"
+                    try:
+                        # Create version via backend
+                        create_response = self._make_request(
+                            "POST",
+                            "/versions",
+                            json={"name": item, "user_notes": "", "ai_notes": ""},
+                        )
+
+                        if create_response.status_code == 200:
+                            print(f"  ✓ Created version: {item}")
+                        else:
+                            print(
+                                f"  ✗ Failed to create version: {item} - {create_response.text}"
+                            )
+
+                    except Exception as e:
+                        print(f"  ✗ Error creating version {item}: {e}")
+
+                # Emit signal to reload versions
+                self.versionsLoaded.emit()
+
+            else:
+                print(f"ERROR: Failed to load playlist items: {data.get('message')}")
+
+        except Exception as e:
+            print(f"ERROR: Failed to load ShotGrid playlist: {e}")

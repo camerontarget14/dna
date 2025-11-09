@@ -33,6 +33,16 @@ ApplicationWindow {
         }
     }
 
+    // Keyboard shortcut for preferences
+    Shortcut {
+        sequence: "Ctrl+Shift+P"
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            console.log("Preferences shortcut activated")
+            preferencesDialog.visible = !preferencesDialog.visible
+        }
+    }
+
     // Keyboard shortcut to hide/show top section (meeting, llm, playlists)
     Shortcut {
         sequence: "Ctrl+Shift+U"
@@ -145,6 +155,11 @@ ApplicationWindow {
                 text: "About"
                 onTriggered: aboutDialog.open()
             }
+
+            MenuItem {
+                text: "Preferences..."
+                onTriggered: preferencesDialog.open()
+            }
         }
     }
 
@@ -172,7 +187,7 @@ ApplicationWindow {
                 ColumnLayout {
                         anchors.fill: parent
                         anchors.margins: 16
-                        spacing: 0
+                        spacing: 8
 
                         Text {
                             text: "Meeting"
@@ -180,16 +195,14 @@ ApplicationWindow {
                             font.bold: true
                             color: themeManager.textColor
                             Layout.fillWidth: true
-                            Layout.bottomMargin: 12
                         }
 
                         TextField {
                             id: meetingIdInput
                             Layout.fillWidth: true
-                            placeholderText: "Meeting ID"
+                            placeholderText: "Meeting URL or ID"
                             text: backend.meetingId
                             color: themeManager.textColor
-                            Layout.bottomMargin: 8
 
                             background: Rectangle {
                                 color: themeManager.inputBackground
@@ -203,23 +216,52 @@ ApplicationWindow {
                             }
                         }
 
+                        // Status indicator
+                        Text {
+                            text: {
+                                if (backend.meetingStatus === "connecting") return "⏳ Connecting..."
+                                if (backend.meetingStatus === "connected") return "✓ Connected"
+                                if (backend.meetingStatus === "error") return "✗ Error"
+                                return "○ Disconnected"
+                            }
+                            font.pixelSize: 12
+                            color: {
+                                if (backend.meetingStatus === "connecting") return "#fbc02d"
+                                if (backend.meetingStatus === "connected") return "#388e3c"
+                                if (backend.meetingStatus === "error") return "#d32f2f"
+                                return themeManager.mutedTextColor
+                            }
+                            Layout.fillWidth: true
+                        }
+
                         Button {
-                            text: "Join Meeting"
+                            text: backend.meetingActive ? "Leave Meeting" : "Join Meeting"
                             Layout.fillWidth: true
                             Layout.preferredHeight: 40
+                            enabled: backend.meetingStatus !== "connecting"
 
                             onClicked: {
-                                backend.joinMeeting()
+                                if (backend.meetingActive) {
+                                    backend.leaveMeeting()
+                                } else {
+                                    backend.joinMeeting()
+                                }
                             }
 
                             background: Rectangle {
-                                color: parent.enabled ? (parent.hovered ? themeManager.accentHover : themeManager.accentColor) : "#3a3a3a"
+                                color: {
+                                    if (!parent.enabled) return "#3a3a3a"
+                                    if (backend.meetingActive) {
+                                        return parent.hovered ? "#d32f2f" : "#f44336"
+                                    }
+                                    return parent.hovered ? themeManager.accentHover : themeManager.accentColor
+                                }
                                 radius: 6
                             }
 
                             contentItem: Text {
                                 text: parent.text
-                                color: parent.enabled ? themeManager.textColor : "#555555"
+                                color: parent.enabled ? "#ffffff" : "#555555"
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                                 font.pixelSize: 14
@@ -259,7 +301,7 @@ ApplicationWindow {
                             }
 
                             Repeater {
-                                model: ["OpenAI", "Claude", "Llama"]
+                                model: ["OpenAI", "Claude", "Gemini"]
                                 TabButton {
                                     text: modelData
                                     background: Rectangle {
@@ -285,23 +327,6 @@ ApplicationWindow {
                             // OpenAI Tab
                             ColumnLayout {
                                 spacing: 8
-
-                                TextField {
-                                    Layout.fillWidth: true
-                                    placeholderText: "API Key"
-                                    text: backend.openaiApiKey
-                                    color: themeManager.textColor
-                                    echoMode: TextInput.Password
-
-                                    background: Rectangle {
-                                        color: themeManager.inputBackground
-                                        border.color: themeManager.borderColor
-                                        border.width: 1
-                                        radius: 4
-                                    }
-
-                                    onTextChanged: backend.openaiApiKey = text
-                                }
 
                                 ScrollView {
                                     Layout.fillWidth: true
@@ -330,23 +355,6 @@ ApplicationWindow {
                             ColumnLayout {
                                 spacing: 8
 
-                                TextField {
-                                    Layout.fillWidth: true
-                                    placeholderText: "API Key"
-                                    text: backend.claudeApiKey
-                                    color: themeManager.textColor
-                                    echoMode: TextInput.Password
-
-                                    background: Rectangle {
-                                        color: themeManager.inputBackground
-                                        border.color: themeManager.borderColor
-                                        border.width: 1
-                                        radius: 4
-                                    }
-
-                                    onTextChanged: backend.claudeApiKey = text
-                                }
-
                                 ScrollView {
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
@@ -370,26 +378,9 @@ ApplicationWindow {
                                 }
                             }
 
-                            // Llama Tab
+                            // Gemini Tab
                             ColumnLayout {
                                 spacing: 8
-
-                                TextField {
-                                    Layout.fillWidth: true
-                                    placeholderText: "API Key"
-                                    text: backend.llamaApiKey
-                                    color: themeManager.textColor
-                                    echoMode: TextInput.Password
-
-                                    background: Rectangle {
-                                        color: themeManager.inputBackground
-                                        border.color: themeManager.borderColor
-                                        border.width: 1
-                                        radius: 4
-                                    }
-
-                                    onTextChanged: backend.llamaApiKey = text
-                                }
 
                                 ScrollView {
                                     Layout.fillWidth: true
@@ -398,7 +389,7 @@ ApplicationWindow {
 
                                     TextArea {
                                         placeholderText: "Prompt"
-                                        text: backend.llamaPrompt
+                                        text: backend.geminiPrompt
                                         color: themeManager.textColor
                                         wrapMode: TextArea.Wrap
 
@@ -409,7 +400,7 @@ ApplicationWindow {
                                             radius: 4
                                         }
 
-                                        onTextChanged: backend.llamaPrompt = text
+                                        onTextChanged: backend.geminiPrompt = text
                                     }
                                 }
                             }
@@ -1205,6 +1196,435 @@ ApplicationWindow {
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                         font.pixelSize: 14
+                    }
+                }
+            }
+        }
+    }
+
+    // Preferences Dialog
+    Dialog {
+        id: preferencesDialog
+        modal: true
+        anchors.centerIn: parent
+        width: 700
+        height: 500
+        title: "Preferences"
+
+        background: Rectangle {
+            color: themeManager.cardBackground
+            border.color: themeManager.borderColor
+            border.width: 1
+            radius: 8
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 20
+            spacing: 20
+
+            // Tab Bar
+            TabBar {
+                id: prefsTabBar
+                Layout.fillWidth: true
+                background: Rectangle {
+                    color: themeManager.cardBackground
+                }
+
+                TabButton {
+                    text: "ShotGrid"
+                    background: Rectangle {
+                        color: parent.checked ? themeManager.accentColor : (parent.hovered ? "#555555" : themeManager.cardBackground)
+                        radius: 4
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.checked ? "white" : themeManager.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                TabButton {
+                    text: "Vexa"
+                    background: Rectangle {
+                        color: parent.checked ? themeManager.accentColor : (parent.hovered ? "#555555" : themeManager.cardBackground)
+                        radius: 4
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.checked ? "white" : themeManager.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                TabButton {
+                    text: "LLMs"
+                    background: Rectangle {
+                        color: parent.checked ? themeManager.accentColor : (parent.hovered ? "#555555" : themeManager.cardBackground)
+                        radius: 4
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.checked ? "white" : themeManager.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+            }
+
+            // Stack Layout for tab content
+            StackLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                currentIndex: prefsTabBar.currentIndex
+
+                // ShotGrid Tab
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+
+                    ColumnLayout {
+                        width: parent.parent.width - 40
+                        spacing: 15
+
+                        Text {
+                            text: "ShotGrid Integration"
+                            font.pixelSize: 16
+                            font.bold: true
+                            color: themeManager.textColor
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: themeManager.borderColor
+                        }
+
+                        // ShotGrid Web URL
+                        ColumnLayout {
+                            spacing: 5
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "ShotGrid Web URL:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            TextField {
+                                id: sgWebUrlInput
+                                Layout.fillWidth: true
+                                placeholderText: "https://yoursite.shotgrid.autodesk.com"
+                                text: backend.shotgridWebUrl
+                                color: themeManager.textColor
+                                background: Rectangle {
+                                    color: themeManager.cardBackground
+                                    border.color: themeManager.borderColor
+                                    border.width: 1
+                                    radius: 4
+                                }
+                            }
+                        }
+
+                        // ShotGrid API Key
+                        ColumnLayout {
+                            spacing: 5
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "API Key:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            TextField {
+                                id: sgApiKeyInput
+                                Layout.fillWidth: true
+                                placeholderText: "Your ShotGrid API Key"
+                                text: backend.shotgridApiKey
+                                echoMode: TextInput.Password
+                                color: themeManager.textColor
+                                background: Rectangle {
+                                    color: themeManager.cardBackground
+                                    border.color: themeManager.borderColor
+                                    border.width: 1
+                                    radius: 4
+                                }
+                            }
+                        }
+
+                        // Script Name
+                        ColumnLayout {
+                            spacing: 5
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "Script Name:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            TextField {
+                                id: sgScriptNameInput
+                                Layout.fillWidth: true
+                                placeholderText: "DNA Script"
+                                text: backend.shotgridScriptName
+                                color: themeManager.textColor
+                                background: Rectangle {
+                                    color: themeManager.cardBackground
+                                    border.color: themeManager.borderColor
+                                    border.width: 1
+                                    radius: 4
+                                }
+                            }
+                        }
+
+                        Item { Layout.fillHeight: true }
+                    }
+                }
+
+                // Vexa Tab
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+
+                    ColumnLayout {
+                        width: parent.parent.width - 40
+                        spacing: 15
+
+                        Text {
+                            text: "Vexa Meeting Integration"
+                            font.pixelSize: 16
+                            font.bold: true
+                            color: themeManager.textColor
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: themeManager.borderColor
+                        }
+
+                        // Vexa API Key
+                        ColumnLayout {
+                            spacing: 5
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "Vexa API Key:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            TextField {
+                                id: vexaApiKeyPrefInput
+                                Layout.fillWidth: true
+                                placeholderText: "Your Vexa API Key"
+                                text: backend.vexaApiKey
+                                echoMode: TextInput.Password
+                                color: themeManager.textColor
+                                background: Rectangle {
+                                    color: themeManager.cardBackground
+                                    border.color: themeManager.borderColor
+                                    border.width: 1
+                                    radius: 4
+                                }
+                            }
+                        }
+
+                        // Vexa API URL
+                        ColumnLayout {
+                            spacing: 5
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "Vexa API URL:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            TextField {
+                                id: vexaApiUrlPrefInput
+                                Layout.fillWidth: true
+                                placeholderText: "https://devapi.dev.vexa.ai"
+                                text: backend.vexaApiUrl
+                                color: themeManager.textColor
+                                background: Rectangle {
+                                    color: themeManager.cardBackground
+                                    border.color: themeManager.borderColor
+                                    border.width: 1
+                                    radius: 4
+                                }
+                            }
+                        }
+
+                        Item { Layout.fillHeight: true }
+                    }
+                }
+
+                // LLMs Tab
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+
+                    ColumnLayout {
+                        width: parent.parent.width - 40
+                        spacing: 15
+
+                        Text {
+                            text: "LLM API Configuration"
+                            font.pixelSize: 16
+                            font.bold: true
+                            color: themeManager.textColor
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: themeManager.borderColor
+                        }
+
+                        // OpenAI
+                        ColumnLayout {
+                            spacing: 5
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "OpenAI API Key:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            TextField {
+                                id: openaiApiKeyPrefInput
+                                Layout.fillWidth: true
+                                placeholderText: "sk-..."
+                                text: backend.openaiApiKey
+                                echoMode: TextInput.Password
+                                color: themeManager.textColor
+                                background: Rectangle {
+                                    color: themeManager.cardBackground
+                                    border.color: themeManager.borderColor
+                                    border.width: 1
+                                    radius: 4
+                                }
+                            }
+                        }
+
+                        // Claude
+                        ColumnLayout {
+                            spacing: 5
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "Claude API Key:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            TextField {
+                                id: claudeApiKeyPrefInput
+                                Layout.fillWidth: true
+                                placeholderText: "sk-ant-..."
+                                text: backend.claudeApiKey
+                                echoMode: TextInput.Password
+                                color: themeManager.textColor
+                                background: Rectangle {
+                                    color: themeManager.cardBackground
+                                    border.color: themeManager.borderColor
+                                    border.width: 1
+                                    radius: 4
+                                }
+                            }
+                        }
+
+                        // Gemini
+                        ColumnLayout {
+                            spacing: 5
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "Gemini API Key:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            TextField {
+                                id: geminiApiKeyPrefInput
+                                Layout.fillWidth: true
+                                placeholderText: "Your Gemini API Key"
+                                text: backend.geminiApiKey
+                                echoMode: TextInput.Password
+                                color: themeManager.textColor
+                                background: Rectangle {
+                                    color: themeManager.cardBackground
+                                    border.color: themeManager.borderColor
+                                    border.width: 1
+                                    radius: 4
+                                }
+                            }
+                        }
+
+                        Item { Layout.fillHeight: true }
+                    }
+                }
+            }
+
+            // Button row
+            RowLayout {
+                spacing: 10
+                Layout.alignment: Qt.AlignRight
+
+                Button {
+                    text: "Cancel"
+                    background: Rectangle {
+                        color: parent.hovered ? "#555555" : "#444444"
+                        radius: 4
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: themeManager.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: {
+                        preferencesDialog.reject()
+                    }
+                }
+
+                Button {
+                    text: "Apply"
+                    background: Rectangle {
+                        color: parent.hovered ? themeManager.accentHover : themeManager.accentColor
+                        radius: 4
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: "white"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: {
+                        // ShotGrid settings
+                        backend.shotgridWebUrl = sgWebUrlInput.text
+                        backend.shotgridApiKey = sgApiKeyInput.text
+                        backend.shotgridScriptName = sgScriptNameInput.text
+
+                        // Vexa settings
+                        backend.vexaApiKey = vexaApiKeyPrefInput.text
+                        backend.vexaApiUrl = vexaApiUrlPrefInput.text
+
+                        // LLM settings
+                        backend.openaiApiKey = openaiApiKeyPrefInput.text
+                        backend.claudeApiKey = claudeApiKeyPrefInput.text
+                        backend.geminiApiKey = geminiApiKeyPrefInput.text
+
+                        preferencesDialog.accept()
                     }
                 }
             }
