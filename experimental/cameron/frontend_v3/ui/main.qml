@@ -989,45 +989,149 @@ ApplicationWindow {
                         }
 
                         // Notes entry area - always visible at bottom
-                        ScrollView {
+                        Rectangle {
                             SplitView.fillHeight: true
                             SplitView.minimumHeight: 80
                             SplitView.preferredHeight: 120
+                            color: themeManager.inputBackground
 
-                            TextArea {
-                                id: notesEntryArea
-                                text: backend.currentVersionNote
-                                wrapMode: TextArea.Wrap
-                                color: themeManager.textColor
-                                placeholderText: "Type your notes here..."
+                            ColumnLayout {
+                                anchors.fill: parent
+                                spacing: 0
 
-                                onTextChanged: {
-                                    backend.updateVersionNote(text)
+                                // Status dropdown at top (bottom left of notes box)
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: backend.includeStatuses ? 40 : 0
+                                    visible: backend.includeStatuses
+                                    spacing: 10
+                                    Layout.margins: 8
+
+                                    Text {
+                                        text: "Status:"
+                                        color: themeManager.textColor
+                                        font.pixelSize: 12
+                                    }
+
+                                    ComboBox {
+                                        id: statusComboBox
+                                        Layout.preferredWidth: 150
+                                        model: backend.versionStatuses
+                                        currentIndex: {
+                                            var idx = backend.versionStatuses.indexOf(backend.selectedVersionStatus)
+                                            return idx >= 0 ? idx : -1
+                                        }
+
+                                        onActivated: function(index) {
+                                            if (index >= 0 && index < backend.versionStatuses.length) {
+                                                backend.selectedVersionStatus = backend.versionStatuses[index]
+                                            }
+                                        }
+
+                                        background: Rectangle {
+                                            color: parent.hovered ? "#3a3a3a" : themeManager.cardBackground
+                                            border.color: themeManager.borderColor
+                                            border.width: 1
+                                            radius: 4
+                                        }
+
+                                        contentItem: Text {
+                                            text: statusComboBox.displayText
+                                            color: themeManager.textColor
+                                            font.pixelSize: 12
+                                            verticalAlignment: Text.AlignVCenter
+                                            leftPadding: 8
+                                        }
+
+                                        delegate: ItemDelegate {
+                                            width: statusComboBox.width
+                                            height: 30
+
+                                            contentItem: Text {
+                                                text: modelData
+                                                color: themeManager.textColor
+                                                font.pixelSize: 12
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
+
+                                            background: Rectangle {
+                                                color: parent.hovered ? themeManager.accentColor : themeManager.cardBackground
+                                            }
+                                        }
+
+                                        popup: Popup {
+                                            y: statusComboBox.height
+                                            width: statusComboBox.width
+                                            padding: 0
+
+                                            contentItem: ListView {
+                                                clip: true
+                                                implicitHeight: contentHeight
+                                                model: statusComboBox.popup.visible ? statusComboBox.delegateModel : null
+                                                currentIndex: statusComboBox.highlightedIndex
+
+                                                ScrollIndicator.vertical: ScrollIndicator { }
+                                            }
+
+                                            background: Rectangle {
+                                                color: themeManager.cardBackground
+                                                border.color: themeManager.borderColor
+                                                border.width: 1
+                                                radius: 4
+                                            }
+                                        }
+                                    }
+
+                                    Item { Layout.fillWidth: true }
                                 }
 
-                                Keys.onPressed: function(event) {
-                                    // Allow shortcuts to work even when text area has focus
-                                    if (event.modifiers === (Qt.ControlModifier | Qt.ShiftModifier)) {
-                                        if (event.key === Qt.Key_Up) {
-                                            event.accepted = false  // Let the shortcut handle it
-                                        } else if (event.key === Qt.Key_Down) {
-                                            event.accepted = false  // Let the shortcut handle it
-                                        } else if (event.key === Qt.Key_A) {
-                                            event.accepted = false
-                                        } else if (event.key === Qt.Key_R) {
-                                            event.accepted = false
-                                        } else if (event.key === Qt.Key_F) {
-                                            event.accepted = false
+                                // Notes text area
+                                ScrollView {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+
+                                    TextArea {
+                                        id: notesEntryArea
+                                        text: backend.currentVersionNote
+                                        wrapMode: TextArea.Wrap
+                                        color: themeManager.textColor
+                                        placeholderText: "Type your notes here..."
+
+                                        onTextChanged: {
+                                            backend.updateVersionNote(text)
+                                        }
+
+                                        Keys.onPressed: function(event) {
+                                            // Allow shortcuts to work even when text area has focus
+                                            if (event.modifiers === (Qt.ControlModifier | Qt.ShiftModifier)) {
+                                                if (event.key === Qt.Key_Up) {
+                                                    event.accepted = false  // Let the shortcut handle it
+                                                } else if (event.key === Qt.Key_Down) {
+                                                    event.accepted = false  // Let the shortcut handle it
+                                                } else if (event.key === Qt.Key_A) {
+                                                    event.accepted = false
+                                                } else if (event.key === Qt.Key_R) {
+                                                    event.accepted = false
+                                                } else if (event.key === Qt.Key_F) {
+                                                    event.accepted = false
+                                                }
+                                            }
+                                        }
+
+                                        background: Rectangle {
+                                            color: "transparent"
                                         }
                                     }
                                 }
+                            }
 
-                                background: Rectangle {
-                                    color: themeManager.inputBackground
-                                    border.color: themeManager.borderColor
-                                    border.width: 1
-                                    radius: 6
-                                }
+                            // Border for the entire notes box
+                            Rectangle {
+                                anchors.fill: parent
+                                color: "transparent"
+                                border.color: themeManager.borderColor
+                                border.width: 1
+                                radius: 6
                             }
                         }
                     }
@@ -1513,6 +1617,61 @@ ApplicationWindow {
                             }
                         }
 
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: themeManager.borderColor
+                            Layout.topMargin: 10
+                            Layout.bottomMargin: 10
+                        }
+
+                        // Include Statuses Toggle
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            Text {
+                                text: "Include Statuses:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            Switch {
+                                id: includeStatusesToggle
+                                checked: backend.includeStatuses
+
+                                indicator: Rectangle {
+                                    implicitWidth: 48
+                                    implicitHeight: 24
+                                    x: parent.leftPadding
+                                    y: parent.height / 2 - height / 2
+                                    radius: 12
+                                    color: parent.checked ? themeManager.accentColor : "#555555"
+                                    border.color: parent.checked ? themeManager.accentColor : "#666666"
+
+                                    Rectangle {
+                                        x: parent.parent.checked ? parent.width - width - 2 : 2
+                                        y: (parent.height - height) / 2
+                                        width: 20
+                                        height: 20
+                                        radius: 10
+                                        color: "white"
+
+                                        Behavior on x {
+                                            NumberAnimation { duration: 200 }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text {
+                                text: "Enable version status dropdown in notes"
+                                font.pixelSize: 11
+                                color: themeManager.mutedTextColor
+                                Layout.fillWidth: true
+                            }
+                        }
+
                         Item { Layout.fillHeight: true }
                     }
                 }
@@ -1581,7 +1740,7 @@ ApplicationWindow {
                             TextField {
                                 id: vexaApiUrlPrefInput
                                 Layout.fillWidth: true
-                                placeholderText: "https://devapi.dev.vexa.ai"
+                                placeholderText: "https://api.cloud.vexa.ai"
                                 text: backend.vexaApiUrl
                                 color: themeManager.textColor
                                 background: Rectangle {
@@ -1906,6 +2065,7 @@ ApplicationWindow {
                         backend.shotgridWebUrl = sgWebUrlInput.text
                         backend.shotgridApiKey = sgApiKeyInput.text
                         backend.shotgridScriptName = sgScriptNameInput.text
+                        backend.includeStatuses = includeStatusesToggle.checked
 
                         // Vexa settings
                         backend.vexaApiKey = vexaApiKeyPrefInput.text

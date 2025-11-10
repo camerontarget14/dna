@@ -38,6 +38,9 @@ class BackendService(QObject):
     shotgridWebUrlChanged = Signal()
     shotgridApiKeyChanged = Signal()
     shotgridScriptNameChanged = Signal()
+    includeStatusesChanged = Signal()
+    versionStatusesChanged = Signal()
+    selectedVersionStatusChanged = Signal()
 
     # Versions
     versionsLoaded = Signal()
@@ -58,7 +61,7 @@ class BackendService(QObject):
 
         # Vexa integration
         self._vexa_api_key = ""
-        self._vexa_api_url = "https://devapi.dev.vexa.ai"
+        self._vexa_api_url = "https://api.cloud.vexa.ai"
         self._vexa_service = None
         self._meeting_active = False
         self._meeting_status = (
@@ -103,14 +106,23 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         self._shotgrid_playlists = []
         self._shotgrid_projects_data = []
         self._shotgrid_playlists_data = []
+        self._selected_project_id = None
         self._selected_playlist_id = None
         self._shotgrid_web_url = ""
         self._shotgrid_api_key = ""
         self._shotgrid_script_name = ""
+        self._include_statuses = False
+        self._version_statuses = []  # List of display names for UI
+        self._version_status_codes = {}  # Dict mapping display names to codes
+        self._selected_version_status = ""
 
         # Per-version notes storage (version_id -> note_text)
         self._version_notes = {}
         self._current_version_note = ""
+
+        # Transcript segment tracking for version-specific routing
+        self._version_activation_time = None  # Timestamp when current version was activated
+        self._seen_segment_ids = set()  # Track which segment IDs we've already processed for this version
 
         # Check if ShotGrid is enabled and load projects
         self._check_shotgrid_enabled()
@@ -311,11 +323,32 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             self._current_ai_notes = version.get("ai_notes", "")
             self._current_transcript = version.get("transcript", "")
 
+            # Load status (convert code to display name for UI)
+            status_code = version.get("status", "")
+            # Find the display name for this code
+            self._selected_version_status = ""
+            for display_name, code in self._version_status_codes.items():
+                if code == status_code:
+                    self._selected_version_status = display_name
+                    break
+
             # Load per-version note
             self._current_version_note = self._version_notes.get(version_id, "")
 
             # Clear staging
             self._staging_note = ""
+
+            # Reset transcript tracking for new version - start fresh
+            import time
+            self._version_activation_time = time.time()
+            self._seen_segment_ids = set()  # Clear the set of seen segments
+
+            # Mark all CURRENT segments in the meeting as "seen" (async, non-blocking)
+            # so we only capture NEW segments that arrive after this point
+            # Using QTimer to make it async and not block the UI
+            QTimer.singleShot(0, self._mark_current_segments_as_seen)
+
+            print(f"  Reset transcript tracking - will only capture new segments from now on")
 
             # Emit signals
             self.selectedVersionIdChanged.emit()
@@ -325,11 +358,13 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             self.currentTranscriptChanged.emit()
             self.currentVersionNoteChanged.emit()
             self.stagingNoteChanged.emit()
+            self.selectedVersionStatusChanged.emit()
 
             print(f"✓ Loaded version '{self._selected_version_name}'")
             print(f"  User notes: {len(self._current_notes)} chars")
             print(f"  AI notes: {len(self._current_ai_notes)} chars")
             print(f"  Version note: {len(self._current_version_note)} chars")
+            print(f"  Transcript: {len(self._current_transcript)} chars")
 
         except Exception as e:
             print(f"ERROR: Failed to select version: {e}")
@@ -383,7 +418,27 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             print("ERROR: No transcript available for AI note generation")
             return
 
+        # Determine which provider, prompt, and API key to use based on API keys
+        provider = None
+        prompt = None
+        api_key = None
+
+        if self._openai_api_key:
+            provider = "openai"
+            prompt = self._openai_prompt
+            api_key = self._openai_api_key
+        elif self._gemini_api_key:
+            provider = "gemini"
+            prompt = self._gemini_prompt
+            api_key = self._gemini_api_key
+        elif self._claude_api_key:
+            provider = "claude"
+            prompt = self._claude_prompt
+            api_key = self._claude_api_key
+
         print(f"Generating AI notes for version '{self._selected_version_name}'...")
+        if provider:
+            print(f"  Using provider: {provider}")
 
         try:
             response = self._make_request(
@@ -392,6 +447,9 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                 json={
                     "version_id": self._selected_version_id,
                     "transcript": self._current_transcript,
+                    "prompt": prompt,
+                    "provider": provider,
+                    "api_key": api_key,
                 },
             )
 
@@ -644,9 +702,9 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
         self._transcription_timer = QTimer()
         self._transcription_timer.timeout.connect(self._poll_transcription)
-        self._transcription_timer.start(5000)  # Poll every 5 seconds
+        self._transcription_timer.start(1000)  # Poll every 1 second for real-time updates
 
-        print("Started transcription polling (every 5 seconds)")
+        print("Started transcription polling (every 1 second)")
 
         # Do initial fetch
         self._poll_transcription()
@@ -658,8 +716,8 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             self._transcription_timer = None
             print("Stopped transcription polling")
 
-    def _poll_transcription(self):
-        """Poll for transcription updates"""
+    def _mark_current_segments_as_seen(self):
+        """Mark all current meeting segments as seen (called when switching versions)"""
         if not self._current_meeting_id or not self._vexa_service:
             return
 
@@ -668,27 +726,99 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                 self._current_meeting_id
             )
 
-            # Update transcript
             segments = transcription_data.segments
             if segments:
-                # Combine all segment texts into full transcript
-                full_text = "\n".join(
+                # Mark all existing segment IDs as seen
+                for seg in segments:
+                    segment_id = seg.get('id') or seg.get('timestamp', '')
+                    if segment_id:
+                        self._seen_segment_ids.add(segment_id)
+
+                print(f"  Marked {len(segments)} existing segments as seen")
+
+        except Exception as e:
+            # Not critical if this fails
+            pass
+
+    def _poll_transcription(self):
+        """Poll for transcription updates and route to active version"""
+        if not self._current_meeting_id or not self._vexa_service:
+            return
+
+        # Only route transcripts if a version is selected
+        if not self._selected_version_id or self._version_activation_time is None:
+            return
+
+        try:
+            transcription_data = self._vexa_service.get_transcription(
+                self._current_meeting_id
+            )
+
+            # Get all segments from the meeting
+            segments = transcription_data.segments
+            if not segments:
+                return
+
+            # Filter to only NEW segments we haven't seen yet (by segment ID)
+            new_segments = []
+            for seg in segments:
+                segment_id = seg.get('id') or seg.get('timestamp', '')
+                # Only process segments we haven't seen before
+                if segment_id and segment_id not in self._seen_segment_ids:
+                    new_segments.append(seg)
+                    self._seen_segment_ids.add(segment_id)  # Mark as seen
+
+            if new_segments:
+                # Append only NEW segments to the current version's transcript
+                new_text = "\n".join(
                     [
                         f"{seg.get('speaker', 'Unknown')}: {seg.get('text', '')}"
-                        for seg in segments
+                        for seg in new_segments
                     ]
                 )
 
-                if full_text != self._current_transcript:
-                    self._current_transcript = full_text
-                    self.currentTranscriptChanged.emit()
-                    print(
-                        f"Transcript updated: {len(segments)} segments, {len(full_text)} chars"
-                    )
+                # Append to existing transcript (don't replace)
+                if self._current_transcript:
+                    self._current_transcript += "\n" + new_text
+                else:
+                    self._current_transcript = new_text
+
+                self.currentTranscriptChanged.emit()
+
+                # Save the updated transcript to the currently active version in backend
+                self._save_transcript_to_active_version(self._current_transcript)
+
+                print(
+                    f"Transcript updated for version '{self._selected_version_name}': +{len(new_segments)} new segments"
+                )
 
         except Exception as e:
             # Don't spam errors, transcription might not be ready yet
             pass
+
+    def _save_transcript_to_active_version(self, transcript_text):
+        """Save transcript to the currently active version"""
+        if not self._selected_version_id:
+            return
+
+        try:
+            # Update the version's transcript in the backend
+            response = self._make_request(
+                "PUT",
+                f"/versions/{self._selected_version_id}/notes",
+                json={
+                    "version_id": self._selected_version_id,
+                    "transcript": transcript_text
+                }
+            )
+
+            if response.status_code == 200:
+                print(f"  ✓ Saved transcript to version '{self._selected_version_name}'")
+            else:
+                print(f"  ✗ Failed to save transcript: {response.text}")
+
+        except Exception as e:
+            print(f"  ✗ Error saving transcript: {e}")
 
     # ===== CSV Import/Export =====
 
@@ -785,6 +915,40 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             print(f"ShotGrid Script Name updated: {value}")
             self._try_update_shotgrid_config()
 
+    @Property(bool, notify=includeStatusesChanged)
+    def includeStatuses(self):
+        return self._include_statuses
+
+    @includeStatuses.setter
+    def includeStatuses(self, value):
+        if self._include_statuses != value:
+            self._include_statuses = value
+            self.includeStatusesChanged.emit()
+            print(f"Include Statuses updated: {value}")
+            if value:
+                self.loadVersionStatuses()
+
+    @Property(list, notify=versionStatusesChanged)
+    def versionStatuses(self):
+        return self._version_statuses
+
+    @Property(str, notify=selectedVersionStatusChanged)
+    def selectedVersionStatus(self):
+        # Return display name for UI
+        return self._selected_version_status
+
+    @selectedVersionStatus.setter
+    def selectedVersionStatus(self, value):
+        # value is the display name from UI
+        if self._selected_version_status != value:
+            self._selected_version_status = value
+            self.selectedVersionStatusChanged.emit()
+            print(f"Version status display name updated: {value}")
+            # Convert display name to code before updating backend
+            status_code = self._version_status_codes.get(value, value)
+            print(f"  Status code: {status_code}")
+            self.updateVersionStatus(status_code)
+
     def _try_update_shotgrid_config(self):
         """Auto-update backend config when all three values are set"""
         if self._shotgrid_web_url and self._shotgrid_api_key and self._shotgrid_script_name:
@@ -862,10 +1026,15 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
         project = self._shotgrid_projects_data[index]
         project_id = project["id"]
+        self._selected_project_id = project_id
         print(f"Selected ShotGrid project: {project['code']} (ID: {project_id})")
 
         # Load playlists for this project
         self.loadShotGridPlaylists(project_id)
+
+        # Load version statuses for this project if includeStatuses is enabled
+        if self._include_statuses:
+            self.loadVersionStatuses()
 
     @Slot(int)
     def loadShotGridPlaylists(self, project_id):
@@ -966,8 +1135,147 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                 # Emit signal to reload versions
                 self.versionsLoaded.emit()
 
+                # If includeStatuses is enabled, load statuses for these versions
+                if self._include_statuses:
+                    self.loadPlaylistVersionsWithStatuses(playlist_id)
+
             else:
                 print(f"ERROR: Failed to load playlist items: {data.get('message')}")
 
         except Exception as e:
             print(f"ERROR: Failed to load ShotGrid playlist: {e}")
+
+    @Slot()
+    def loadVersionStatuses(self):
+        """Load available version statuses from ShotGrid for the selected project"""
+        print("Loading version statuses from ShotGrid...")
+
+        try:
+            # Use project_id parameter if available to only get statuses used in that project
+            params = {}
+            if self._selected_project_id:
+                params["project_id"] = self._selected_project_id
+                print(f"  Filtering statuses for project ID: {self._selected_project_id}")
+
+            response = self._make_request("GET", "/shotgrid/version-statuses", params=params)
+            data = response.json()
+
+            if data.get("status") == "success":
+                statuses_response = data.get("statuses", {})
+                print(f"DEBUG: statuses_response type: {type(statuses_response)}")
+                print(f"DEBUG: statuses_response content: {statuses_response}")
+
+                # Handle both dict and list responses
+                if isinstance(statuses_response, dict):
+                    # status_dict is {code: display_name}
+                    # We want to show display names in the UI but store codes in the backend
+                    self._version_statuses = list(statuses_response.values())  # Display names for UI
+                    self._version_status_codes = {v: k for k, v in statuses_response.items()}  # Reverse map: name -> code
+                elif isinstance(statuses_response, list):
+                    # If it's a list of codes, use them as-is (no display names available)
+                    self._version_statuses = statuses_response
+                    self._version_status_codes = {v: v for v in statuses_response}  # Map code to itself
+                else:
+                    print(f"ERROR: Unexpected statuses response type: {type(statuses_response)}")
+                    self._version_statuses = []
+                    self._version_status_codes = {}
+
+                self.versionStatusesChanged.emit()
+                print(f"✓ Loaded {len(self._version_statuses)} version statuses")
+                print(f"  Display names: {self._version_statuses}")
+                print(f"  Code mapping: {self._version_status_codes}")
+            else:
+                print(f"ERROR: Failed to load version statuses: {data.get('message')}")
+
+        except Exception as e:
+            print(f"ERROR: Failed to load version statuses: {e}")
+
+    @Slot(int)
+    def loadPlaylistVersionsWithStatuses(self, playlist_id):
+        """Load versions with their statuses from a playlist"""
+        print(f"Loading version statuses for playlist ID: {playlist_id}")
+
+        try:
+            response = self._make_request(
+                "GET", f"/shotgrid/playlist-versions-with-statuses/{playlist_id}"
+            )
+            data = response.json()
+
+            if data.get("status") == "success":
+                versions = data.get("versions", [])
+                print(f"✓ Loaded statuses for {len(versions)} versions")
+
+                # Update each version's status via backend API
+                for version_info in versions:
+                    version_name = version_info.get("name", "")
+                    status = version_info.get("status", "")
+
+                    if version_name and status:
+                        try:
+                            # Extract just the version name (part after the /)
+                            if "/" in version_name:
+                                version_id = version_name.split("/")[-1]
+                            else:
+                                version_id = version_name
+
+                            # Update version status via backend
+                            update_response = self._make_request(
+                                "PUT",
+                                f"/versions/{version_id}/notes",
+                                json={"version_id": version_id, "user_notes": None, "ai_notes": None, "transcript": None},
+                            )
+
+                            # Also update the version with status field
+                            # We need to get the current version data first
+                            get_response = self._make_request("GET", f"/versions/{version_id}")
+                            if get_response.status_code == 200:
+                                version_data = get_response.json().get("version", {})
+                                version_data["status"] = status
+
+                                # Update with new status
+                                self._make_request(
+                                    "POST",
+                                    "/versions",
+                                    json=version_data
+                                )
+                                print(f"  ✓ Updated status for {version_name}: {status}")
+
+                        except Exception as e:
+                            print(f"  ✗ Error updating status for {version_name}: {e}")
+
+            else:
+                print(f"ERROR: Failed to load version statuses: {data.get('message')}")
+
+        except Exception as e:
+            print(f"ERROR: Failed to load version statuses for playlist: {e}")
+
+    @Slot(str)
+    def updateVersionStatus(self, status):
+        """Update the status of the currently selected version"""
+        if not self._selected_version_id:
+            print("ERROR: No version selected")
+            return
+
+        print(f"Updating status for version {self._selected_version_id} to: {status}")
+
+        try:
+            # Get current version data
+            response = self._make_request("GET", f"/versions/{self._selected_version_id}")
+            if response.status_code == 200:
+                version_data = response.json().get("version", {})
+                version_data["status"] = status
+
+                # Update version with new status
+                update_response = self._make_request(
+                    "POST",
+                    "/versions",
+                    json=version_data
+                )
+
+                if update_response.status_code == 200:
+                    print(f"✓ Updated version status to: {status}")
+                else:
+                    print(f"✗ Failed to update version status: {update_response.text}")
+
+        except Exception as e:
+            print(f"ERROR: Failed to update version status: {e}")

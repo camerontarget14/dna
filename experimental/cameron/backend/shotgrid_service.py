@@ -236,6 +236,84 @@ def get_playlist_shot_names(playlist_id):
     return anonymize_shot_names(shot_names)
 
 
+def get_version_statuses(project_id=None):
+    """
+    Fetch available version statuses from ShotGrid with their display names.
+    Always returns all statuses available in the schema (regardless of project).
+    Returns a dict mapping status codes to display names.
+    """
+    sg = Shotgun(get_shotgrid_url(), get_script_name(), get_api_key())
+
+    # Get the schema to get all available statuses for the Version entity
+    schema = sg.schema_field_read("Version", "sg_status_list")
+    status_display_names = {}
+
+    print(f"DEBUG: Raw schema response keys: {schema.keys() if schema else 'None'}")
+
+    if schema:
+        # The response structure is: {'sg_status_list': {'property_name': {'editable': bool, 'value': ...}}}
+        # We need to look for 'valid_values' or 'display_values' property
+        field_props = schema.get("sg_status_list", {})
+        print(f"DEBUG: field_props keys: {field_props.keys() if isinstance(field_props, dict) else 'not a dict'}")
+
+        # Try to find valid_values property
+        if "properties" in field_props:
+            props = field_props["properties"]
+            print(f"DEBUG: Properties found: {props.keys() if isinstance(props, dict) else 'not a dict'}")
+
+            if "valid_values" in props:
+                valid_values_prop = props["valid_values"]
+                print(f"DEBUG: valid_values property: {valid_values_prop}")
+                if isinstance(valid_values_prop, dict) and "value" in valid_values_prop:
+                    status_display_names = valid_values_prop["value"]
+            elif "display_values" in props:
+                display_values_prop = props["display_values"]
+                print(f"DEBUG: display_values property: {display_values_prop}")
+                if isinstance(display_values_prop, dict) and "value" in display_values_prop:
+                    status_display_names = display_values_prop["value"]
+
+        print(f"DEBUG: Final status_display_names: {status_display_names}")
+
+    # Return all available statuses from schema
+    return status_display_names
+
+
+def get_playlist_versions_with_statuses(playlist_id):
+    """Fetch version details including statuses from a playlist."""
+    sg = Shotgun(get_shotgrid_url(), get_script_name(), get_api_key())
+    fields = ["versions"]
+    playlist = sg.find_one("Playlist", [["id", "is", playlist_id]], fields)
+    if not playlist or not playlist.get("versions"):
+        return []
+    version_ids = [v["id"] for v in playlist["versions"] if v.get("id")]
+    if not version_ids:
+        return []
+    version_fields = ["id", SHOTGRID_VERSION_FIELD, SHOTGRID_SHOT_FIELD, "sg_status_list"]
+    versions = sg.find("Version", [["id", "in", version_ids]], version_fields)
+
+    version_data = []
+    for v in versions:
+        shot_name = extract_shot_name(v.get(SHOTGRID_SHOT_FIELD))
+        version_name = v.get(SHOTGRID_VERSION_FIELD, "")
+        status = v.get("sg_status_list", "")
+
+        if version_name or shot_name:
+            version_info = {
+                "name": f"{shot_name}/{version_name}",
+                "status": status
+            }
+            version_data.append(version_info)
+
+    # Anonymize if needed
+    if get_demo_mode():
+        for v in version_data:
+            if "/" in v["name"]:
+                parts = v["name"].split("/", 1)
+                v["name"] = f"{anonymize_shot_name(parts[0])}/{anonymize_version_name(parts[1])}"
+
+    return version_data
+
+
 def validate_shot_version_input(input_value, project_id=None):
     """
     Validate shot/version input and return the proper shot/version format.
@@ -478,6 +556,31 @@ def shotgrid_playlist_items(playlist_id: int):
     try:
         items = get_playlist_shot_names(playlist_id)
         return {"status": "success", "items": items}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500, content={"status": "error", "message": str(e)}
+        )
+
+
+@router.get("/shotgrid/version-statuses")
+def shotgrid_version_statuses(project_id: int = None):
+    """Get available version statuses from ShotGrid with display names. If project_id is provided, only returns statuses used in that project."""
+    try:
+        status_dict = get_version_statuses(project_id)
+        # Return as dict with codes as keys and names as values
+        return {"status": "success", "statuses": status_dict}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500, content={"status": "error", "message": str(e)}
+        )
+
+
+@router.get("/shotgrid/playlist-versions-with-statuses/{playlist_id}")
+def shotgrid_playlist_versions_with_statuses(playlist_id: int):
+    """Get version details including statuses from a playlist."""
+    try:
+        versions = get_playlist_versions_with_statuses(playlist_id)
+        return {"status": "success", "versions": versions}
     except Exception as e:
         return JSONResponse(
             status_code=500, content={"status": "error", "message": str(e)}

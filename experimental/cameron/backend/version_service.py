@@ -22,6 +22,7 @@ class Version(BaseModel):
     user_notes: str = ""
     ai_notes: str = ""
     transcript: str = ""
+    status: str = ""  # ShotGrid version status
 
 
 class AddNoteRequest(BaseModel):
@@ -47,6 +48,9 @@ class GenerateAINotesRequest(BaseModel):
     transcript: Optional[str] = (
         None  # If not provided, uses version's existing transcript
     )
+    prompt: Optional[str] = None  # Custom prompt for LLM
+    provider: Optional[str] = None  # LLM provider (openai, claude, gemini)
+    api_key: Optional[str] = None  # API key for LLM provider
 
 
 # ===== In-Memory Storage =====
@@ -116,6 +120,7 @@ async def upload_csv(file: UploadFile = File(...)):
             user_notes="",
             ai_notes="",
             transcript="",
+            status="",
         )
         _versions[version.id] = version
         _version_order.append(version.id)
@@ -228,12 +233,28 @@ async def generate_ai_notes(version_id: str, request: GenerateAINotesRequest):
     # Call the LLM summary endpoint (internal call)
     # In a real implementation, you might want to import and call the function directly
     async with httpx.AsyncClient() as client:
+        llm_request = {"text": transcript}
+
+        # Add custom prompt if provided
+        if request.prompt:
+            llm_request["prompt"] = request.prompt
+
+        # Add provider if provided
+        if request.provider:
+            llm_request["provider"] = request.provider
+
+        # Add API key if provided
+        if request.api_key:
+            llm_request["api_key"] = request.api_key
+
         response = await client.post(
-            "http://localhost:8000/llm-summary", json={"text": transcript}
+            "http://localhost:8000/llm-summary", json=llm_request
         )
 
         if response.status_code != 200:
-            raise HTTPException(status_code=500, detail="Failed to generate AI notes")
+            error_detail = f"LLM summary failed: {response.text}"
+            print(f"ERROR: {error_detail}")
+            raise HTTPException(status_code=500, detail=error_detail)
 
         result = response.json()
         ai_notes = result.get("summary", "")

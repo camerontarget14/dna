@@ -8,6 +8,9 @@ router = APIRouter()
 
 class LLMSummaryRequest(BaseModel):
     text: str
+    prompt: str = None  # Optional custom prompt, uses default if not provided
+    provider: str = "openai"  # Which LLM provider to use (openai, claude, gemini)
+    api_key: str = None  # Optional API key, uses env var if not provided
 
 
 # --- LLM IMPLEMENTATION CODE ---
@@ -53,37 +56,50 @@ DEFAULT_MODELS = {
 }
 
 
-def summarize_openai(conversation, model, client):
-    prompt = USER_PROMPT_TEMPLATE.format(conversation=conversation)
+def summarize_openai(conversation, model, client, custom_prompt=None):
+    # Use custom prompt if provided, otherwise use default template
+    if custom_prompt:
+        prompt = f"{custom_prompt}\n\nFollowing is the conversation:\n{conversation}"
+    else:
+        prompt = USER_PROMPT_TEMPLATE.format(conversation=conversation)
+
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
+            {"role": "system", "content": SYSTEM_PROMPT if not custom_prompt else custom_prompt},
+            {"role": "user", "content": prompt if not custom_prompt else conversation},
         ],
         temperature=TEMPERATURE,
     )
     return response.choices[0].message.content
 
 
-def summarize_claude(conversation, model, client):
-    prompt = USER_PROMPT_TEMPLATE.format(conversation=conversation)
+def summarize_claude(conversation, model, client, custom_prompt=None):
+    if custom_prompt:
+        prompt = f"{custom_prompt}\n\nFollowing is the conversation:\n{conversation}"
+        system_prompt = custom_prompt
+    else:
+        prompt = USER_PROMPT_TEMPLATE.format(conversation=conversation)
+        system_prompt = SYSTEM_PROMPT
+
     response = client.messages.create(
         model=model,
         max_tokens=1024,
         temperature=TEMPERATURE,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt if not custom_prompt else conversation},
         ],
     )
     return response.content[0].text
 
 
-def summarize_ollama(conversation, model, client):
-    prompt = (
-        SYSTEM_PROMPT + "\n\n" + USER_PROMPT_TEMPLATE.format(conversation=conversation)
-    )
+def summarize_ollama(conversation, model, client, custom_prompt=None):
+    if custom_prompt:
+        prompt = f"{custom_prompt}\n\nFollowing is the conversation:\n{conversation}"
+    else:
+        prompt = SYSTEM_PROMPT + "\n\n" + USER_PROMPT_TEMPLATE.format(conversation=conversation)
+
     response = client.post(
         "http://localhost:11434/api/generate",
         json={"model": model, "prompt": prompt, "stream": False},
@@ -91,10 +107,12 @@ def summarize_ollama(conversation, model, client):
     return response.json()["response"]
 
 
-def summarize_gemini(conversation, model, client):
-    full_prompt = (
-        f"{SYSTEM_PROMPT}\n\n{USER_PROMPT_TEMPLATE.format(conversation=conversation)}"
-    )
+def summarize_gemini(conversation, model, client, custom_prompt=None):
+    if custom_prompt:
+        full_prompt = f"{custom_prompt}\n\nFollowing is the conversation:\n{conversation}"
+    else:
+        full_prompt = f"{SYSTEM_PROMPT}\n\n{USER_PROMPT_TEMPLATE.format(conversation=conversation)}"
+
     response = client.generate_content(
         full_prompt,
         generation_config=genai.types.GenerationConfig(
@@ -185,50 +203,85 @@ async def llm_summary(data: LLMSummaryRequest):
     """
     Generate a summary using LLM for the given text.
     Tries providers in order: OpenAI -> Gemini -> Anthropic
+    If no API keys are configured, returns error instead of fake data.
     """
-    if DISABLE_LLM:
-        # Return a random summary for testing
-        random_summaries = [
-            "The team discussed lighting and animation improvements.",
-            "Minor tweaks needed for character animation; background approved.",
-            "Action items: soften shadows, adjust highlight gain, improve hand motion.",
-            "Most notes addressed; only a few minor issues remain.",
-            "Ready for final review after next round of changes.",
-            "Feedback: color grade is close, but highlights too hot.",
-            "Artist to be notified about animation and lighting feedback.",
-            "Overall progress is good; next steps communicated to the team.",
-        ]
-        return {"summary": random.choice(random_summaries)}
+    # Determine which client to use - either from request or env vars
+    client_to_use = None
+    model_to_use = None
+    provider_name = None
 
-    # Try OpenAI first (current preference)
-    if openai_client:
+    # If API key provided in request, create client dynamically
+    if data.api_key:
+        provider = data.provider.lower() if data.provider else "openai"
         try:
-            print(f"Using OpenAI ({openai_model}) for summary")
-            summary = summarize_openai(data.text, openai_model, openai_client)
+            if provider == "openai":
+                client_to_use = create_llm_client("openai", api_key=data.api_key)
+                model_to_use = DEFAULT_MODELS["openai"]
+                provider_name = "openai"
+            elif provider == "gemini":
+                model_to_use = DEFAULT_MODELS["gemini"]
+                client_to_use = create_llm_client("gemini", api_key=data.api_key, model=model_to_use)
+                provider_name = "gemini"
+            elif provider == "claude":
+                client_to_use = create_llm_client("claude", api_key=data.api_key)
+                model_to_use = DEFAULT_MODELS["claude"]
+                provider_name = "claude"
+
+            print(f"Using {provider} with provided API key")
+        except Exception as e:
+            print(f"Error creating client for {provider} with provided API key: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create {provider} client: {str(e)}"
+            )
+    else:
+        # Use pre-initialized clients from env vars
+        has_any_client = openai_client or gemini_client or anthropic_client
+
+        if not has_any_client:
+            # No providers available - return error
+            raise HTTPException(
+                status_code=500,
+                detail="No LLM providers available. Please configure at least one API key (OPENAI_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY) in .env file or provide api_key in request.",
+            )
+
+        # Try OpenAI first (current preference)
+        if openai_client:
+            client_to_use = openai_client
+            model_to_use = openai_model
+            provider_name = "openai"
+        elif gemini_client:
+            client_to_use = gemini_client
+            model_to_use = gemini_model
+            provider_name = "gemini"
+        elif anthropic_client:
+            client_to_use = anthropic_client
+            model_to_use = anthropic_model
+            provider_name = "claude"
+
+    # Generate summary with the selected client
+    if client_to_use and provider_name:
+        try:
+            print(f"Using {provider_name} ({model_to_use}) for summary")
+            if provider_name == "openai":
+                summary = summarize_openai(data.text, model_to_use, client_to_use, data.prompt)
+            elif provider_name == "gemini":
+                summary = summarize_gemini(data.text, model_to_use, client_to_use, data.prompt)
+            elif provider_name == "claude":
+                summary = summarize_claude(data.text, model_to_use, client_to_use, data.prompt)
+            else:
+                raise HTTPException(status_code=500, detail=f"Unsupported provider: {provider_name}")
+
             return {"summary": summary}
         except Exception as e:
-            print(f"Error with OpenAI: {e}")
+            print(f"Error with {provider_name}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"{provider_name} failed: {str(e)}"
+            )
 
-    # Fallback to Gemini
-    if gemini_client:
-        try:
-            print(f"Using Gemini ({gemini_model}) for summary")
-            summary = summarize_gemini(data.text, gemini_model, gemini_client)
-            return {"summary": summary}
-        except Exception as e:
-            print(f"Error with Gemini: {e}")
-
-    # Fallback to Anthropic
-    if anthropic_client:
-        try:
-            print(f"Using Anthropic ({anthropic_model}) for summary")
-            summary = summarize_claude(data.text, anthropic_model, anthropic_client)
-            return {"summary": summary}
-        except Exception as e:
-            print(f"Error with Anthropic: {e}")
-
-    # No providers available
+    # No client available
     raise HTTPException(
         status_code=500,
-        detail="No LLM providers available. Please configure at least one API key (OPENAI_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY) in .env file.",
+        detail="No LLM client available. Please provide an API key.",
     )
