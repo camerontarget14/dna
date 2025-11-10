@@ -131,6 +131,21 @@ async def upload_csv(file: UploadFile = File(...)):
     }
 
 
+@router.post("/versions")
+async def create_version(version: Version):
+    """Create a new version"""
+    # Check if version already exists
+    if version.id in _versions:
+        print(f"Version '{version.id}' already exists, updating...")
+        _versions[version.id] = version
+    else:
+        print(f"Creating new version: {version.name} (ID: {version.id})")
+        _versions[version.id] = version
+        _version_order.append(version.id)
+
+    return {"status": "success", "version": version.model_dump()}
+
+
 @router.get("/versions")
 async def get_versions():
     """Get all versions in order"""

@@ -13,19 +13,49 @@ from typing import Optional
 load_dotenv()
 
 # --- Configuration ---
-SHOTGRID_URL = os.environ.get("SHOTGRID_URL")
-SCRIPT_NAME = os.environ.get("SHOTGRID_SCRIPT_NAME")
-API_KEY = os.environ.get("SHOTGRID_API_KEY")
-# Configurable field names for version and shot
-# Standard ShotGrid schema uses:
-#   - "entity" for the link field from Version to Shot/Asset
-#   - "code" for the version name/number field
-SHOTGRID_VERSION_FIELD = os.environ.get("SHOTGRID_VERSION_FIELD", "code")
-SHOTGRID_SHOT_FIELD = os.environ.get("SHOTGRID_SHOT_FIELD", "entity")
-SHOTGRID_TYPE_FILTER = os.environ.get("SHOTGRID_TYPE_FILTER", "")
-SHOTGRID_TYPE_LIST = [t.strip() for t in SHOTGRID_TYPE_FILTER.split(",") if t.strip()]
-# Demo mode configuration
-DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() == "true"
+# Runtime configuration that can be updated via API
+_runtime_config = {
+    "SHOTGRID_URL": os.environ.get("SHOTGRID_URL"),
+    "SCRIPT_NAME": os.environ.get("SHOTGRID_SCRIPT_NAME"),
+    "API_KEY": os.environ.get("SHOTGRID_API_KEY"),
+    "SHOTGRID_VERSION_FIELD": os.environ.get("SHOTGRID_VERSION_FIELD", "code"),
+    "SHOTGRID_SHOT_FIELD": os.environ.get("SHOTGRID_SHOT_FIELD", "entity"),
+    "SHOTGRID_TYPE_FILTER": os.environ.get("SHOTGRID_TYPE_FILTER", ""),
+    "DEMO_MODE": os.environ.get("DEMO_MODE", "false").lower() == "true"
+}
+
+# Helper functions to get current configuration
+def get_shotgrid_url():
+    return _runtime_config.get("SHOTGRID_URL")
+
+def get_script_name():
+    return _runtime_config.get("SCRIPT_NAME")
+
+def get_api_key():
+    return _runtime_config.get("API_KEY")
+
+def get_version_field():
+    return _runtime_config.get("SHOTGRID_VERSION_FIELD", "code")
+
+def get_shot_field():
+    return _runtime_config.get("SHOTGRID_SHOT_FIELD", "entity")
+
+def get_type_filter():
+    type_filter = _runtime_config.get("SHOTGRID_TYPE_FILTER", "")
+    return [t.strip() for t in type_filter.split(",") if t.strip()]
+
+def get_demo_mode():
+    return _runtime_config.get("DEMO_MODE", False)
+
+# For backward compatibility
+SHOTGRID_URL = get_shotgrid_url()
+SCRIPT_NAME = get_script_name()
+API_KEY = get_api_key()
+SHOTGRID_VERSION_FIELD = get_version_field()
+SHOTGRID_SHOT_FIELD = get_shot_field()
+SHOTGRID_TYPE_FILTER = _runtime_config.get("SHOTGRID_TYPE_FILTER", "")
+SHOTGRID_TYPE_LIST = get_type_filter()
+DEMO_MODE = get_demo_mode()
 
 
 def anonymize_text(text, prefix="DEMO"):
@@ -33,7 +63,7 @@ def anonymize_text(text, prefix="DEMO"):
     Anonymize text by creating a consistent hash-based replacement.
     This ensures the same input always produces the same anonymized output.
     """
-    if not text or not DEMO_MODE:
+    if not text or not get_demo_mode():
         return text
 
     # Create a hash of the original text
@@ -49,7 +79,7 @@ def anonymize_text(text, prefix="DEMO"):
 
 def anonymize_project_data(projects):
     """Anonymize project data for demo mode."""
-    if not DEMO_MODE:
+    if not get_demo_mode():
         return projects
 
     anonymized = []
@@ -65,7 +95,7 @@ def anonymize_project_data(projects):
 
 def anonymize_playlist_data(playlists):
     """Anonymize playlist data for demo mode."""
-    if not DEMO_MODE:
+    if not get_demo_mode():
         return playlists
 
     anonymized = []
@@ -103,7 +133,7 @@ def anonymize_version_name(version_text):
 
 def anonymize_shot_names(shot_names):
     """Anonymize shot/version names for demo mode."""
-    if not DEMO_MODE:
+    if not get_demo_mode():
         return shot_names
 
     anonymized = []
@@ -121,12 +151,12 @@ def anonymize_shot_names(shot_names):
 
 def get_project_by_code(project_code):
     """Fetch a single project from ShotGrid by code."""
-    sg = Shotgun(SHOTGRID_URL, SCRIPT_NAME, API_KEY)
+    sg = Shotgun(get_shotgrid_url(), get_script_name(), get_api_key())
     filters = [["code", "is", project_code]]
     fields = ["id", "code", "name", "sg_status", "created_at"]
     project = sg.find_one("Project", filters, fields)
 
-    if project and DEMO_MODE:
+    if project and get_demo_mode():
         project_copy = project.copy()
         if "code" in project_copy:
             project_copy["code"] = anonymize_text(project_copy["code"], "PROJ")
@@ -139,7 +169,7 @@ def get_project_by_code(project_code):
 
 def get_latest_playlists_for_project(project_id, limit=20):
     """Fetch the latest playlists for a given project id."""
-    sg = Shotgun(SHOTGRID_URL, SCRIPT_NAME, API_KEY)
+    sg = Shotgun(get_shotgrid_url(), get_script_name(), get_api_key())
     filters = [["project", "is", {"type": "Project", "id": project_id}]]
     fields = ["id", "code", "created_at", "updated_at"]
     playlists = sg.find(
@@ -154,7 +184,7 @@ def get_latest_playlists_for_project(project_id, limit=20):
 
 def get_active_projects():
     """Fetch all active projects from ShotGrid (sg_status == 'Active' and sg_type in configured list), sorted by code."""
-    sg = Shotgun(SHOTGRID_URL, SCRIPT_NAME, API_KEY)
+    sg = Shotgun(get_shotgrid_url(), get_script_name(), get_api_key())
     filters = [
         ["sg_status", "is", "Active"],
         {
@@ -184,7 +214,7 @@ def extract_shot_name(shot_field):
 
 def get_playlist_shot_names(playlist_id):
     """Fetch the list of shot/version names from a playlist, using configurable field names."""
-    sg = Shotgun(SHOTGRID_URL, SCRIPT_NAME, API_KEY)
+    sg = Shotgun(get_shotgrid_url(), get_script_name(), get_api_key())
     fields = ["versions"]
     playlist = sg.find_one("Playlist", [["id", "is", playlist_id]], fields)
     if not playlist or not playlist.get("versions"):
@@ -231,7 +261,7 @@ def validate_shot_version_input(input_value, project_id=None):
         }
 
     input_value = input_value.strip()
-    sg = Shotgun(SHOTGRID_URL, SCRIPT_NAME, API_KEY)
+    sg = Shotgun(get_shotgrid_url(), get_script_name(), get_api_key())
 
     # Check if input is a number (version)
     if input_value.isdigit():
@@ -250,7 +280,7 @@ def validate_shot_version_input(input_value, project_id=None):
             version_name = version.get(SHOTGRID_VERSION_FIELD, input_value)
             shot_version = f"{shot_name}/{version_name}"
 
-            if DEMO_MODE:
+            if get_demo_mode():
                 shot_version = f"{anonymize_shot_name(shot_name)}/{anonymize_version_name(version_name)}"
 
             return {
@@ -305,7 +335,7 @@ def validate_shot_version_input(input_value, project_id=None):
                     f"{shot_name}/001"  # Default version if no versions found
                 )
 
-            if DEMO_MODE:
+            if get_demo_mode():
                 shot_version = f"{anonymize_shot_name(shot_name)}/{anonymize_version_name(version_name if latest_version else '001')}"
 
             return {
@@ -349,7 +379,7 @@ def validate_shot_version_input(input_value, project_id=None):
                     f"{asset_name}/001"  # Default version if no versions found
                 )
 
-            if DEMO_MODE:
+            if get_demo_mode():
                 shot_version = f"{anonymize_shot_name(asset_name)}/{anonymize_version_name(version_name if latest_version else '001')}"
 
             return {
@@ -371,9 +401,54 @@ def validate_shot_version_input(input_value, project_id=None):
 router = APIRouter()
 
 
+class ShotGridConfigRequest(BaseModel):
+    shotgrid_url: Optional[str] = None
+    script_name: Optional[str] = None
+    api_key: Optional[str] = None
+
+
 class ValidateShotVersionRequest(BaseModel):
     input_value: str
     project_id: Optional[int] = None
+
+
+@router.post("/shotgrid/config")
+def update_shotgrid_config(config: ShotGridConfigRequest):
+    """Update ShotGrid configuration at runtime"""
+    try:
+        if config.shotgrid_url is not None:
+            _runtime_config["SHOTGRID_URL"] = config.shotgrid_url
+        if config.script_name is not None:
+            _runtime_config["SCRIPT_NAME"] = config.script_name
+        if config.api_key is not None:
+            _runtime_config["API_KEY"] = config.api_key
+
+        return {
+            "status": "success",
+            "message": "ShotGrid configuration updated",
+            "config": {
+                "shotgrid_url": get_shotgrid_url(),
+                "script_name": get_script_name(),
+                "api_key_set": bool(get_api_key())
+            }
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500, content={"status": "error", "message": str(e)}
+        )
+
+
+@router.get("/shotgrid/config")
+def get_shotgrid_config():
+    """Get current ShotGrid configuration (excluding sensitive data)"""
+    return {
+        "status": "success",
+        "config": {
+            "shotgrid_url": get_shotgrid_url(),
+            "script_name": get_script_name(),
+            "api_key_set": bool(get_api_key())
+        }
+    }
 
 
 @router.get("/shotgrid/active-projects")
@@ -485,7 +560,7 @@ if __name__ == "__main__":
             print("Proceeding without project filter")
 
     print("ShotGrid Service Test CLI")
-    if DEMO_MODE:
+    if get_demo_mode():
         print("🎭 DEMO MODE ACTIVE - Data will be anonymized")
     print("1. List all active projects")
     print("2. List latest playlists for a project")

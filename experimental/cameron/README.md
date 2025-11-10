@@ -34,11 +34,14 @@ cameron/
 
 ### Backend (Required for both frontends)
 
+**Important:** The backend requires Python 3.11 for proper ShotGrid API integration. Python 3.12+ has compatibility issues with the `shotgun_api3` library.
+
 ```bash
 cd backend
+python3.11 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-python main.py
+python -m uvicorn main:app --reload --port 8000
 ```
 
 Backend runs on `http://localhost:8000`

@@ -36,7 +36,7 @@ class TranscriptionData:
 class VexaService:
     """Service for Vexa API communication"""
 
-    def __init__(self, api_key: str, api_url: str = "https://devapi.dev.vexa.ai"):
+    def __init__(self, api_key: str, api_url: str = "https://api.cloud.vexa.ai"):
         self.api_key = api_key
         self.api_url = api_url
 
@@ -64,7 +64,7 @@ class VexaService:
             return "google_meet", meeting_url
 
     def start_transcription(
-        self, meeting_url: str, language: str = "auto", bot_name: str = "Vexa"
+        self, meeting_url: str, language: str = "auto", bot_name: str = "Dailies Notes Assistant"
     ) -> Dict[str, Any]:
         """Start bot for meeting"""
         try:
@@ -85,7 +85,7 @@ class VexaService:
                 f"{self.api_url}/bots", json=payload, headers=self._get_headers()
             )
 
-            if response.status_code in [200, 202]:
+            if response.status_code in [200, 201, 202]:
                 print(f"✓ Bot started successfully")
 
                 # Try to get internal meeting ID
@@ -132,7 +132,7 @@ class VexaService:
                 headers=self._get_headers(),
             )
 
-            if response.status_code in [200, 204]:
+            if response.status_code in [200, 202, 204]:
                 print(f"✓ Bot stopped successfully")
                 return {"success": True}
             else:

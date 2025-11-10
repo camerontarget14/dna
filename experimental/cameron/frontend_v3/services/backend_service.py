@@ -79,11 +79,24 @@ class BackendService(QObject):
 
         # LLM settings
         self._openai_api_key = ""
-        self._openai_prompt = ""
         self._claude_api_key = ""
-        self._claude_prompt = ""
         self._gemini_api_key = ""
-        self._gemini_prompt = ""
+
+        # Default LLM prompt (short mode from llm_prompts.factory.yaml)
+        default_prompt = """You are a helpful assistant that reviews transcripts of artist review meetings and generates concise, readable summaries of the discussions.
+
+The meetings are focused on reviewing creative work submissions ("shots") for a movie. Each meeting involves artists and reviewers (supervisors, leads, etc.) discussing feedback, decisions, and next steps for each shot.
+
+Your goal is to recreate short, clear, and accurate abbreviated conversations that capture:
+- Key feedback points
+- Decisions made (e.g., approved/finalled shots)
+- Any actionable tasks for the artist
+
+Write in a concise, natural tone that's easy for artists to quickly scan and understand what was said and what they need to do next."""
+
+        self._openai_prompt = default_prompt
+        self._claude_prompt = default_prompt
+        self._gemini_prompt = default_prompt
 
         # ShotGrid
         self._shotgrid_projects = []
@@ -537,7 +550,7 @@ class BackendService(QObject):
             print(f"Meeting URL/ID: {self._meeting_id}")
 
             result = self._vexa_service.start_transcription(
-                self._meeting_id, language="auto", bot_name="DNA Assistant"
+                self._meeting_id, language="auto", bot_name="Dailies Notes Assistant"
             )
 
             if result.get("success"):
@@ -746,6 +759,7 @@ class BackendService(QObject):
             self._shotgrid_web_url = value
             self.shotgridWebUrlChanged.emit()
             print(f"ShotGrid Web URL updated: {value}")
+            self._try_update_shotgrid_config()
 
     @Property(str, notify=shotgridApiKeyChanged)
     def shotgridApiKey(self):
@@ -757,6 +771,7 @@ class BackendService(QObject):
             self._shotgrid_api_key = value
             self.shotgridApiKeyChanged.emit()
             print("ShotGrid API Key updated")
+            self._try_update_shotgrid_config()
 
     @Property(str, notify=shotgridScriptNameChanged)
     def shotgridScriptName(self):
@@ -768,6 +783,39 @@ class BackendService(QObject):
             self._shotgrid_script_name = value
             self.shotgridScriptNameChanged.emit()
             print(f"ShotGrid Script Name updated: {value}")
+            self._try_update_shotgrid_config()
+
+    def _try_update_shotgrid_config(self):
+        """Auto-update backend config when all three values are set"""
+        if self._shotgrid_web_url and self._shotgrid_api_key and self._shotgrid_script_name:
+            self.updateShotGridConfig()
+
+    @Slot()
+    def updateShotGridConfig(self):
+        """Send ShotGrid configuration to backend"""
+        if not self._shotgrid_web_url or not self._shotgrid_api_key or not self._shotgrid_script_name:
+            print("ERROR: ShotGrid configuration is incomplete")
+            return
+
+        try:
+            payload = {
+                "shotgrid_url": self._shotgrid_web_url,
+                "script_name": self._shotgrid_script_name,
+                "api_key": self._shotgrid_api_key
+            }
+
+            response = self._make_request("POST", "/shotgrid/config", json=payload)
+            data = response.json()
+
+            if data.get("status") == "success":
+                print("✓ ShotGrid configuration updated on backend")
+                # Auto-load projects after configuration
+                self.loadShotGridProjects()
+            else:
+                print(f"ERROR: Failed to update ShotGrid config: {data.get('message')}")
+
+        except Exception as e:
+            print(f"ERROR: Failed to update ShotGrid configuration: {e}")
 
     @Slot()
     def loadShotGridProjects(self):
@@ -891,12 +939,18 @@ class BackendService(QObject):
                 # Create versions via backend API
                 for item in items:
                     # Item format is "shot_name/version_name"
+                    # Extract just the version name (part after the /)
+                    if "/" in item:
+                        version_name = item.split("/")[-1]
+                    else:
+                        version_name = item
+
                     try:
                         # Create version via backend
                         create_response = self._make_request(
                             "POST",
                             "/versions",
-                            json={"name": item, "user_notes": "", "ai_notes": ""},
+                            json={"id": version_name, "name": version_name, "user_notes": "", "ai_notes": "", "transcript": ""},
                         )
 
                         if create_response.status_code == 200:

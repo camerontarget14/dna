@@ -42,11 +42,9 @@ app.include_router(email_router)
 app.include_router(note_router)
 app.include_router(version_router)
 
-# Only register shotgrid router if ShotGrid is configured
-if shotgrid_enabled:
-    from shotgrid_service import router as shotgrid_router
-
-    app.include_router(shotgrid_router)
+# Always register shotgrid router (config can be set via API)
+from shotgrid_service import router as shotgrid_router
+app.include_router(shotgrid_router)
 
 
 @app.get("/config")

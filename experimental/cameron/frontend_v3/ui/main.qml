@@ -584,6 +584,12 @@ ApplicationWindow {
                                         leftPadding: 8
                                     }
 
+                                    onPressedChanged: {
+                                        if (pressed && backend.shotgridProjects.length === 0) {
+                                            backend.loadShotGridProjects()
+                                        }
+                                    }
+
                                     onCurrentIndexChanged: {
                                         if (currentIndex >= 0) {
                                             backend.selectShotgridProject(currentIndex)
