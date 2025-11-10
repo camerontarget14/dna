@@ -12,6 +12,7 @@ import random
 from email_service import router as email_router
 from note_service import router as note_router
 from version_service import router as version_router
+import sys
 
 # Load environment variables from .env file (optional)
 try:
@@ -45,6 +46,50 @@ app.include_router(version_router)
 # Always register shotgrid router (config can be set via API)
 from shotgrid_service import router as shotgrid_router
 app.include_router(shotgrid_router)
+
+# Register settings router
+from settings_service import router as settings_router
+app.include_router(settings_router)
+
+
+@app.get("/")
+def root():
+    """Root endpoint - API information"""
+    return {
+        "name": "DNA Dailies Notes Assistant API",
+        "version": "1.0.0",
+        "status": "running",
+        "docs": "/docs",
+        "health": "/health"
+    }
+
+
+@app.get("/health")
+def health_check():
+    """
+    Health check endpoint for monitoring and client connectivity testing.
+    Returns service status and availability of optional features.
+    """
+    # Check ShotGrid availability
+    vexa_configured = bool(os.environ.get("VEXA_API_KEY"))
+
+    # Check LLM availability
+    openai_configured = bool(os.environ.get("OPENAI_API_KEY"))
+    claude_configured = bool(os.environ.get("CLAUDE_API_KEY"))
+    gemini_configured = bool(os.environ.get("GEMINI_API_KEY"))
+
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "features": {
+            "shotgrid": shotgrid_enabled,
+            "vexa_transcription": vexa_configured,
+            "llm_openai": openai_configured,
+            "llm_claude": claude_configured,
+            "llm_gemini": gemini_configured
+        }
+    }
 
 
 @app.get("/config")

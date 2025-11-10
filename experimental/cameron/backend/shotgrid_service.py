@@ -535,6 +535,9 @@ def shotgrid_active_projects():
         projects = get_active_projects()
         return {"status": "success", "projects": projects}
     except Exception as e:
+        import traceback
+        print(f"ERROR: Failed to get active projects: {e}")
+        print(traceback.format_exc())
         return JSONResponse(
             status_code=500, content={"status": "error", "message": str(e)}
         )

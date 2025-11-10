@@ -7,6 +7,7 @@ ONLY uses backend API - no local storage
 import requests
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
+from config import BACKEND_URL, REQUEST_TIMEOUT, CONNECTION_RETRY_ATTEMPTS, DEBUG_MODE
 from services.vexa_service import VexaService
 
 
@@ -35,7 +36,7 @@ class BackendService(QObject):
     # ShotGrid
     shotgridProjectsChanged = Signal()
     shotgridPlaylistsChanged = Signal()
-    shotgridWebUrlChanged = Signal()
+    shotgridUrlChanged = Signal()
     shotgridApiKeyChanged = Signal()
     shotgridScriptNameChanged = Signal()
     includeStatusesChanged = Signal()
@@ -50,9 +51,18 @@ class BackendService(QObject):
     vexaApiKeyChanged = Signal()
     vexaApiUrlChanged = Signal()
 
-    def __init__(self, backend_url="http://localhost:8000"):
+    def __init__(self, backend_url=None):
         super().__init__()
-        self._backend_url = backend_url
+        # Use provided URL, environment variable, or default
+        self._backend_url = backend_url or BACKEND_URL
+        self._request_timeout = REQUEST_TIMEOUT
+        self._retry_attempts = CONNECTION_RETRY_ATTEMPTS
+
+        if DEBUG_MODE:
+            print(f"[DEBUG] Backend URL: {self._backend_url}")
+            print(f"[DEBUG] Request timeout: {self._request_timeout}s")
+            print(f"[DEBUG] Retry attempts: {self._retry_attempts}")
+
         self._check_backend_connection()
 
         # User info
@@ -108,7 +118,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         self._shotgrid_playlists_data = []
         self._selected_project_id = None
         self._selected_playlist_id = None
-        self._shotgrid_web_url = ""
+        self._shotgrid_url = ""
         self._shotgrid_api_key = ""
         self._shotgrid_script_name = ""
         self._include_statuses = False
@@ -123,6 +133,9 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         # Transcript segment tracking for version-specific routing
         self._version_activation_time = None  # Timestamp when current version was activated
         self._seen_segment_ids = set()  # Track which segment IDs we've already processed for this version
+
+        # Load settings from .env file
+        self.load_settings()
 
         # Check if ShotGrid is enabled and load projects
         self._check_shotgrid_enabled()
@@ -156,16 +169,36 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             print(f"Could not check ShotGrid status: {e}")
 
     def _make_request(self, method, endpoint, **kwargs):
-        """Make a request to the backend API with error handling"""
+        """Make a request to the backend API with error handling and retries"""
         url = f"{self._backend_url}{endpoint}"
-        try:
-            response = requests.request(method, url, **kwargs)
-            response.raise_for_status()
-            return response
-        except requests.exceptions.RequestException as e:
-            print(f"ERROR: API request failed: {method} {endpoint}")
-            print(f"  Error: {e}")
-            raise
+
+        # Set timeout if not provided
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = self._request_timeout
+
+        # Retry logic
+        last_exception = None
+        for attempt in range(self._retry_attempts):
+            try:
+                if DEBUG_MODE and attempt > 0:
+                    print(f"[DEBUG] Retry attempt {attempt + 1}/{self._retry_attempts}")
+
+                response = requests.request(method, url, **kwargs)
+                response.raise_for_status()
+                return response
+
+            except requests.exceptions.RequestException as e:
+                last_exception = e
+                if attempt < self._retry_attempts - 1:
+                    # Don't print on last attempt (will be handled below)
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] Request failed (attempt {attempt + 1}): {e}")
+                    continue
+
+        # All retries failed
+        print(f"ERROR: API request failed after {self._retry_attempts} attempts: {method} {endpoint}")
+        print(f"  Error: {last_exception}")
+        raise last_exception
 
     # ===== User Properties =====
 
@@ -236,6 +269,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         if self._openai_api_key != value:
             self._openai_api_key = value
             self.openaiApiKeyChanged.emit()
+            self.save_setting("openai_api_key", value)
 
     @Property(str, notify=openaiPromptChanged)
     def openaiPrompt(self):
@@ -246,6 +280,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         if self._openai_prompt != value:
             self._openai_prompt = value
             self.openaiPromptChanged.emit()
+            self.save_setting("openai_prompt", value)
 
     @Property(str, notify=claudeApiKeyChanged)
     def claudeApiKey(self):
@@ -256,6 +291,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         if self._claude_api_key != value:
             self._claude_api_key = value
             self.claudeApiKeyChanged.emit()
+            self.save_setting("claude_api_key", value)
 
     @Property(str, notify=claudePromptChanged)
     def claudePrompt(self):
@@ -266,6 +302,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         if self._claude_prompt != value:
             self._claude_prompt = value
             self.claudePromptChanged.emit()
+            self.save_setting("claude_prompt", value)
 
     @Property(str, notify=geminiApiKeyChanged)
     def geminiApiKey(self):
@@ -276,6 +313,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         if self._gemini_api_key != value:
             self._gemini_api_key = value
             self.geminiApiKeyChanged.emit()
+            self.save_setting("gemini_api_key", value)
 
     @Property(str, notify=geminiPromptChanged)
     def geminiPrompt(self):
@@ -286,6 +324,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         if self._gemini_prompt != value:
             self._gemini_prompt = value
             self.geminiPromptChanged.emit()
+            self.save_setting("gemini_prompt", value)
 
     # ===== Version Management =====
 
@@ -562,6 +601,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         if self._vexa_api_key != value:
             self._vexa_api_key = value
             self.vexaApiKeyChanged.emit()
+            self.save_setting("vexa_api_key", value)
             # Reinitialize Vexa service with new key
             if value:
                 self._vexa_service = VexaService(value, self._vexa_api_url)
@@ -575,6 +615,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         if self._vexa_api_url != value:
             self._vexa_api_url = value
             self.vexaApiUrlChanged.emit()
+            self.save_setting("vexa_api_url", value)
             # Reinitialize Vexa service with new URL
             if self._vexa_api_key:
                 self._vexa_service = VexaService(self._vexa_api_key, value)
@@ -879,16 +920,17 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
     def shotgridPlaylists(self):
         return self._shotgrid_playlists
 
-    @Property(str, notify=shotgridWebUrlChanged)
-    def shotgridWebUrl(self):
-        return self._shotgrid_web_url
+    @Property(str, notify=shotgridUrlChanged)
+    def shotgridUrl(self):
+        return self._shotgrid_url
 
-    @shotgridWebUrl.setter
-    def shotgridWebUrl(self, value):
-        if self._shotgrid_web_url != value:
-            self._shotgrid_web_url = value
-            self.shotgridWebUrlChanged.emit()
-            print(f"ShotGrid Web URL updated: {value}")
+    @shotgridUrl.setter
+    def shotgridUrl(self, value):
+        if self._shotgrid_url != value:
+            self._shotgrid_url = value
+            self.shotgridUrlChanged.emit()
+            print(f"ShotGrid URL updated: {value}")
+            self.save_setting("shotgrid_url", value)
             self._try_update_shotgrid_config()
 
     @Property(str, notify=shotgridApiKeyChanged)
@@ -901,6 +943,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             self._shotgrid_api_key = value
             self.shotgridApiKeyChanged.emit()
             print("ShotGrid API Key updated")
+            self.save_setting("shotgrid_api_key", value)
             self._try_update_shotgrid_config()
 
     @Property(str, notify=shotgridScriptNameChanged)
@@ -913,6 +956,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             self._shotgrid_script_name = value
             self.shotgridScriptNameChanged.emit()
             print(f"ShotGrid Script Name updated: {value}")
+            self.save_setting("shotgrid_script_name", value)
             self._try_update_shotgrid_config()
 
     @Property(bool, notify=includeStatusesChanged)
@@ -925,6 +969,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             self._include_statuses = value
             self.includeStatusesChanged.emit()
             print(f"Include Statuses updated: {value}")
+            self.save_setting("include_statuses", value)
             if value:
                 self.loadVersionStatuses()
 
@@ -951,19 +996,19 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
     def _try_update_shotgrid_config(self):
         """Auto-update backend config when all three values are set"""
-        if self._shotgrid_web_url and self._shotgrid_api_key and self._shotgrid_script_name:
+        if self._shotgrid_url and self._shotgrid_api_key and self._shotgrid_script_name:
             self.updateShotGridConfig()
 
     @Slot()
     def updateShotGridConfig(self):
         """Send ShotGrid configuration to backend"""
-        if not self._shotgrid_web_url or not self._shotgrid_api_key or not self._shotgrid_script_name:
+        if not self._shotgrid_url or not self._shotgrid_api_key or not self._shotgrid_script_name:
             print("ERROR: ShotGrid configuration is incomplete")
             return
 
         try:
             payload = {
-                "shotgrid_url": self._shotgrid_web_url,
+                "shotgrid_url": self._shotgrid_url,
                 "script_name": self._shotgrid_script_name,
                 "api_key": self._shotgrid_api_key
             }
@@ -1279,3 +1324,96 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
         except Exception as e:
             print(f"ERROR: Failed to update version status: {e}")
+
+    # ===== Settings Persistence =====
+
+    def load_settings(self):
+        """Load settings from backend .env file"""
+        try:
+            response = self._make_request("GET", "/settings")
+            data = response.json()
+
+            if data.get("status") == "success":
+                settings = data.get("settings", {})
+                print(f"✓ Loaded settings from .env file")
+
+                # Apply settings to properties
+                if "shotgrid_url" in settings:
+                    self._shotgrid_url = settings["shotgrid_url"]
+                    self.shotgridUrlChanged.emit()
+
+                if "shotgrid_api_key" in settings:
+                    self._shotgrid_api_key = settings["shotgrid_api_key"]
+                    self.shotgridApiKeyChanged.emit()
+
+                if "shotgrid_script_name" in settings:
+                    self._shotgrid_script_name = settings["shotgrid_script_name"]
+                    self.shotgridScriptNameChanged.emit()
+
+                if "vexa_api_key" in settings:
+                    self._vexa_api_key = settings["vexa_api_key"]
+                    self.vexaApiKeyChanged.emit()
+                    if self._vexa_api_key:
+                        self._vexa_service = VexaService(self._vexa_api_key, self._vexa_api_url)
+
+                if "vexa_api_url" in settings:
+                    self._vexa_api_url = settings["vexa_api_url"]
+                    self.vexaApiUrlChanged.emit()
+
+                if "openai_api_key" in settings:
+                    self._openai_api_key = settings["openai_api_key"]
+                    self.openaiApiKeyChanged.emit()
+
+                if "claude_api_key" in settings:
+                    self._claude_api_key = settings["claude_api_key"]
+                    self.claudeApiKeyChanged.emit()
+
+                if "gemini_api_key" in settings:
+                    self._gemini_api_key = settings["gemini_api_key"]
+                    self.geminiApiKeyChanged.emit()
+
+                if "openai_prompt" in settings:
+                    self._openai_prompt = settings["openai_prompt"]
+                    self.openaiPromptChanged.emit()
+
+                if "claude_prompt" in settings:
+                    self._claude_prompt = settings["claude_prompt"]
+                    self.claudePromptChanged.emit()
+
+                if "gemini_prompt" in settings:
+                    self._gemini_prompt = settings["gemini_prompt"]
+                    self.geminiPromptChanged.emit()
+
+                if "include_statuses" in settings:
+                    self._include_statuses = settings["include_statuses"]
+                    self.includeStatusesChanged.emit()
+
+                return True
+            else:
+                print(f"Failed to load settings: {data.get('message', 'Unknown error')}")
+                return False
+
+        except Exception as e:
+            print(f"ERROR: Failed to load settings: {e}")
+            return False
+
+    def save_setting(self, field_name: str, value):
+        """Save a single setting to .env file"""
+        try:
+            response = self._make_request(
+                "POST",
+                "/settings/save-partial",
+                json={field_name: value}
+            )
+
+            data = response.json()
+            if data.get("status") == "success":
+                print(f"✓ Saved setting: {field_name}")
+                return True
+            else:
+                print(f"Failed to save setting: {data.get('message', 'Unknown error')}")
+                return False
+
+        except Exception as e:
+            print(f"ERROR: Failed to save setting {field_name}: {e}")
+            return False

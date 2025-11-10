@@ -125,7 +125,7 @@ ApplicationWindow {
 
     // Keyboard shortcut to toggle between Notes and Transcript
     Shortcut {
-        sequence: "Ctrl+Shift+F"
+        sequence: "Ctrl+Shift+D"
         context: Qt.ApplicationShortcut
         onActivated: {
             if (tabBar) {
@@ -271,7 +271,7 @@ ApplicationWindow {
                                 radius: 4
                             }
 
-                            onTextChanged: {
+                            onTextChanged: (newText) => {
                                 backend.meetingId = text
                             }
                         }
@@ -779,8 +779,11 @@ ApplicationWindow {
                                 color: themeManager.textColor
                                 font.pixelSize: 14
                                 wrapMode: Text.WordWrap
-                                padding: 10
-                                rightPadding: 12  // Extra padding on right side
+                                padding: 0
+                                leftPadding: 10
+                                rightPadding: 12
+                                topPadding: 2
+                                bottomPadding: 2
                             }
 
                             onClicked: {
@@ -1097,7 +1100,7 @@ ApplicationWindow {
                                         color: themeManager.textColor
                                         placeholderText: "Type your notes here..."
 
-                                        onTextChanged: {
+                                        onTextChanged: (newText) => {
                                             backend.updateVersionNote(text)
                                         }
 
@@ -1553,13 +1556,16 @@ ApplicationWindow {
                                 id: sgWebUrlInput
                                 Layout.fillWidth: true
                                 placeholderText: "https://yoursite.shotgrid.autodesk.com"
-                                text: backend.shotgridWebUrl
+                                text: backend.shotgridUrl
                                 color: themeManager.textColor
                                 background: Rectangle {
                                     color: themeManager.cardBackground
                                     border.color: themeManager.borderColor
                                     border.width: 1
                                     radius: 4
+                                }
+                                onTextChanged: (newText) => {
+                                    backend.shotgridUrl = text
                                 }
                             }
                         }
@@ -2014,7 +2020,7 @@ ApplicationWindow {
                                 Layout.alignment: Qt.AlignRight
                             }
                             Text {
-                                text: "Ctrl+Shift+F"
+                                text: "Ctrl+Shift+D"
                                 font.pixelSize: 12
                                 font.bold: true
                                 color: themeManager.accentColor
@@ -2062,7 +2068,7 @@ ApplicationWindow {
                     }
                     onClicked: {
                         // ShotGrid settings
-                        backend.shotgridWebUrl = sgWebUrlInput.text
+                        backend.shotgridUrl = sgWebUrlInput.text
                         backend.shotgridApiKey = sgApiKeyInput.text
                         backend.shotgridScriptName = sgScriptNameInput.text
                         backend.includeStatuses = includeStatusesToggle.checked
@@ -2184,7 +2190,11 @@ ApplicationWindow {
     component ThemeColorPicker: RowLayout {
         property string title: ""
         property color currentColor: "#000000"
-        signal colorChanged(color newColor)
+        signal colorChanged(newColor: string)
+
+        function emitColorChanged(color) {
+            colorChanged(color)
+        }
 
         Layout.fillWidth: true
         spacing: 12
@@ -2209,7 +2219,7 @@ ApplicationWindow {
                 onClicked: {
                     // Store reference to the picker
                     colorPickerService.colorSelected.connect(function(hexColor) {
-                        colorChanged(hexColor)
+                        emitColorChanged(hexColor)
                         colorPickerService.colorSelected.disconnect(arguments.callee)
                     })
                     // Show RPA color picker
@@ -2219,6 +2229,7 @@ ApplicationWindow {
         }
 
         TextField {
+            id: colorTextField
             Layout.fillWidth: true
             text: currentColor
             color: themeManager.textColor
@@ -2230,9 +2241,9 @@ ApplicationWindow {
                 radius: 4
             }
 
-            onTextChanged: {
-                if (text.match(/^#[0-9A-Fa-f]{6}$/)) {
-                    colorChanged(text)
+            onTextChanged: (newText) => {
+                if (colorTextField.text.match(/^#[0-9A-Fa-f]{6}$/)) {
+                    emitColorChanged(colorTextField.text)
                 }
             }
         }

@@ -5,7 +5,11 @@ Main entry point
 """
 
 import sys
+import os
 from pathlib import Path
+
+# Set Qt Quick Controls style to Basic BEFORE importing Qt
+os.environ["QT_QUICK_CONTROLS_STYLE"] = "Basic"
 
 # Import our custom components
 from models.version_list_model import VersionListModel
