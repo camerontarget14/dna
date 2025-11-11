@@ -8,7 +8,14 @@ ApplicationWindow {
     visible: true
     width: 1400
     height: 800
-    minimumWidth: topSectionVisible ? 1100 : (versionsListVisible ? 800 : 450)
+    minimumWidth: {
+        // If upper widgets are visible, minimum is 1100
+        if (topSectionVisible) return 1100
+        // If only sidebar and notes, minimum is 800
+        if (versionsListVisible) return 800
+        // If only notes section, minimum is 450
+        return 450
+    }
     minimumHeight: 750
     title: "Dailies Notes Assistant"
 
@@ -18,6 +25,11 @@ ApplicationWindow {
     property bool topSectionVisible: true
     property bool versionsListVisible: true
     property int versionListWidth: 320
+
+    // Remember window dimensions before auto-expansion
+    property int savedWidth: 0
+    property int savedX: 0
+    property bool wasSidebarExpanded: false
 
     // Keyboard shortcut for theme customizer
     Shortcut {
@@ -48,6 +60,28 @@ ApplicationWindow {
         sequence: "Ctrl+Shift+U"
         onActivated: {
             console.log("Toggle top section - current state:", topSectionVisible)
+
+            if (!topSectionVisible) {
+                // Showing upper widgets - check if window needs expansion
+                if (root.width < 1100) {
+                    // Save current dimensions
+                    savedWidth = root.width
+                    savedX = root.x
+
+                    // Expand from center
+                    var widthDiff = 1100 - root.width
+                    root.x = root.x - Math.floor(widthDiff / 2)
+                    root.width = 1100
+                }
+            } else {
+                // Hiding upper widgets - restore saved dimensions if they exist
+                if (savedWidth > 0 && savedWidth < 1100) {
+                    root.width = savedWidth
+                    root.x = savedX
+                    savedWidth = 0
+                }
+            }
+
             topSectionVisible = !topSectionVisible
             console.log("Toggle top section - new state:", topSectionVisible)
         }
@@ -65,8 +99,19 @@ ApplicationWindow {
                 root.width = root.width + versionListWidth
             } else {
                 // If hiding, shrink window from the left (move x right, decrease width)
-                root.x = root.x + versionListWidth
-                root.width = root.width - versionListWidth
+                // But don't shrink below the minimum width needed
+                var newWidth = root.width - versionListWidth
+                var minRequired = topSectionVisible ? 1100 : 450
+
+                if (newWidth >= minRequired) {
+                    root.x = root.x + versionListWidth
+                    root.width = newWidth
+                } else {
+                    // Don't shrink, just reposition to keep centered
+                    var shrinkAmount = root.width - minRequired
+                    root.x = root.x + shrinkAmount
+                    root.width = minRequired
+                }
             }
 
             versionsListVisible = !versionsListVisible
@@ -119,7 +164,13 @@ ApplicationWindow {
         sequence: "Ctrl+Shift+R"
         context: Qt.ApplicationShortcut
         onActivated: {
-            backend.generateNotes()
+            // Check if any LLM API key is set
+            if (!backend.openaiApiKey && !backend.claudeApiKey && !backend.geminiApiKey) {
+                warningDialog.warningMessage = "Please add an LLM API key in Preferences (Ctrl+Shift+P) to use AI note generation."
+                warningDialog.open()
+            } else {
+                backend.generateNotes()
+            }
         }
     }
 
@@ -194,7 +245,30 @@ ApplicationWindow {
 
             MenuItem {
                 text: topSectionVisible ? "Hide Upper Widgets" : "Show Upper Widgets"
-                onTriggered: topSectionVisible = !topSectionVisible
+                onTriggered: {
+                    if (!topSectionVisible) {
+                        // Showing upper widgets - check if window needs expansion
+                        if (root.width < 1100) {
+                            // Save current dimensions
+                            savedWidth = root.width
+                            savedX = root.x
+
+                            // Expand from center
+                            var widthDiff = 1100 - root.width
+                            root.x = root.x - Math.floor(widthDiff / 2)
+                            root.width = 1100
+                        }
+                    } else {
+                        // Hiding upper widgets - restore saved dimensions if they exist
+                        if (savedWidth > 0 && savedWidth < 1100) {
+                            root.width = savedWidth
+                            root.x = savedX
+                            savedWidth = 0
+                        }
+                    }
+
+                    topSectionVisible = !topSectionVisible
+                }
             }
 
             MenuItem {
@@ -204,8 +278,20 @@ ApplicationWindow {
                         root.x = root.x - versionListWidth
                         root.width = root.width + versionListWidth
                     } else {
-                        root.x = root.x + versionListWidth
-                        root.width = root.width - versionListWidth
+                        // If hiding, shrink window from the left (move x right, decrease width)
+                        // But don't shrink below the minimum width needed
+                        var newWidth = root.width - versionListWidth
+                        var minRequired = topSectionVisible ? 1100 : 450
+
+                        if (newWidth >= minRequired) {
+                            root.x = root.x + versionListWidth
+                            root.width = newWidth
+                        } else {
+                            // Don't shrink, just reposition to keep centered
+                            var shrinkAmount = root.width - minRequired
+                            root.x = root.x + shrinkAmount
+                            root.width = minRequired
+                        }
                     }
                     versionsListVisible = !versionsListVisible
                 }
@@ -315,7 +401,13 @@ ApplicationWindow {
                                 if (backend.meetingActive) {
                                     backend.leaveMeeting()
                                 } else {
-                                    backend.joinMeeting()
+                                    // Check if Vexa API key is set
+                                    if (!backend.vexaApiKey) {
+                                        warningDialog.warningMessage = "Please add your Vexa API key in Preferences (Ctrl+Shift+P) to join meetings."
+                                        warningDialog.open()
+                                    } else {
+                                        backend.joinMeeting()
+                                    }
                                 }
                             }
 
@@ -596,8 +688,14 @@ ApplicationWindow {
                                     }
 
                                     onPressedChanged: {
-                                        if (pressed && backend.shotgridProjects.length === 0) {
-                                            backend.loadShotGridProjects()
+                                        if (pressed) {
+                                            // Check if ShotGrid credentials are set
+                                            if (!backend.shotgridUrl || !backend.shotgridApiKey || !backend.shotgridScriptName) {
+                                                warningDialog.warningMessage = "Please add complete ShotGrid integration information in Preferences (Ctrl+Shift+P)."
+                                                warningDialog.open()
+                                            } else if (backend.shotgridProjects.length === 0) {
+                                                backend.loadShotGridProjects()
+                                            }
                                         }
                                     }
 
@@ -625,6 +723,16 @@ ApplicationWindow {
                                         color: themeManager.textColor
                                         verticalAlignment: Text.AlignVCenter
                                         leftPadding: 8
+                                    }
+
+                                    onPressedChanged: {
+                                        if (pressed) {
+                                            // Check if ShotGrid credentials are set
+                                            if (!backend.shotgridUrl || !backend.shotgridApiKey || !backend.shotgridScriptName) {
+                                                warningDialog.warningMessage = "Please add complete ShotGrid integration information in Preferences (Ctrl+Shift+P)."
+                                                warningDialog.open()
+                                            }
+                                        }
                                     }
 
                                     onCurrentIndexChanged: {
@@ -945,7 +1053,15 @@ ApplicationWindow {
                                         text: "↻"
                                         width: 40
                                         height: 40
-                                        onClicked: backend.generateNotes()
+                                        onClicked: {
+                                            // Check if any LLM API key is set
+                                            if (!backend.openaiApiKey && !backend.claudeApiKey && !backend.geminiApiKey) {
+                                                warningDialog.warningMessage = "Please add an LLM API key in Preferences (Ctrl+Shift+P) to use AI note generation."
+                                                warningDialog.open()
+                                            } else {
+                                                backend.generateNotes()
+                                            }
+                                        }
 
                                         background: Rectangle {
                                             color: parent.hovered ? themeManager.accentHover : themeManager.accentColor
@@ -1545,16 +1661,49 @@ ApplicationWindow {
         modal: true
         anchors.centerIn: parent
         width: 700
-        height: 500
+        height: 550
         title: "Preferences"
 
         property int minRequiredWidth: 750
-        property int minRequiredHeight: 550
+        property int minRequiredHeight: 600
         property int previousWidth: 0
         property int previousHeight: 0
         property bool wasExpanded: false
 
+        // Temporary properties to hold values before Apply
+        property string tempSgUrl: ""
+        property string tempSgApiKey: ""
+        property string tempSgScriptName: ""
+        property bool tempIncludeStatuses: false
+        property string tempVexaApiKey: ""
+        property string tempVexaApiUrl: ""
+        property string tempOpenaiApiKey: ""
+        property string tempClaudeApiKey: ""
+        property string tempGeminiApiKey: ""
+
         onAboutToShow: {
+            // Load current values into temporary properties
+            tempSgUrl = backend.shotgridUrl
+            tempSgApiKey = backend.shotgridApiKey
+            tempSgScriptName = backend.shotgridScriptName
+            tempIncludeStatuses = backend.includeStatuses
+            tempVexaApiKey = backend.vexaApiKey
+            tempVexaApiUrl = backend.vexaApiUrl
+            tempOpenaiApiKey = backend.openaiApiKey
+            tempClaudeApiKey = backend.claudeApiKey
+            tempGeminiApiKey = backend.geminiApiKey
+
+            // Update text fields with temporary values
+            sgWebUrlInput.text = tempSgUrl
+            sgApiKeyInput.text = tempSgApiKey
+            sgScriptNameInput.text = tempSgScriptName
+            includeStatusesToggle.checked = tempIncludeStatuses
+            vexaApiKeyPrefInput.text = tempVexaApiKey
+            vexaApiUrlPrefInput.text = tempVexaApiUrl
+            openaiApiKeyPrefInput.text = tempOpenaiApiKey
+            claudeApiKeyPrefInput.text = tempClaudeApiKey
+            geminiApiKeyPrefInput.text = tempGeminiApiKey
+
             // Check if window is too small for preferences dialog
             var needsWidthExpansion = root.width < minRequiredWidth
             var needsHeightExpansion = root.height < minRequiredHeight
@@ -1718,16 +1867,12 @@ ApplicationWindow {
                                 id: sgWebUrlInput
                                 Layout.fillWidth: true
                                 placeholderText: "https://yoursite.shotgrid.autodesk.com"
-                                text: backend.shotgridUrl
                                 color: themeManager.textColor
                                 background: Rectangle {
                                     color: themeManager.cardBackground
                                     border.color: themeManager.borderColor
                                     border.width: 1
                                     radius: 4
-                                }
-                                onTextChanged: (newText) => {
-                                    backend.shotgridUrl = text
                                 }
                             }
                         }
@@ -1747,7 +1892,6 @@ ApplicationWindow {
                                 id: sgApiKeyInput
                                 Layout.fillWidth: true
                                 placeholderText: "Your ShotGrid API Key"
-                                text: backend.shotgridApiKey
                                 echoMode: TextInput.Password
                                 color: themeManager.textColor
                                 background: Rectangle {
@@ -1774,7 +1918,6 @@ ApplicationWindow {
                                 id: sgScriptNameInput
                                 Layout.fillWidth: true
                                 placeholderText: "DNA Script"
-                                text: backend.shotgridScriptName
                                 color: themeManager.textColor
                                 background: Rectangle {
                                     color: themeManager.cardBackground
@@ -1806,7 +1949,6 @@ ApplicationWindow {
 
                             Switch {
                                 id: includeStatusesToggle
-                                checked: backend.includeStatuses
 
                                 indicator: Rectangle {
                                     implicitWidth: 48
@@ -1882,7 +2024,6 @@ ApplicationWindow {
                                 id: vexaApiKeyPrefInput
                                 Layout.fillWidth: true
                                 placeholderText: "Your Vexa API Key"
-                                text: backend.vexaApiKey
                                 echoMode: TextInput.Password
                                 color: themeManager.textColor
                                 background: Rectangle {
@@ -1909,7 +2050,6 @@ ApplicationWindow {
                                 id: vexaApiUrlPrefInput
                                 Layout.fillWidth: true
                                 placeholderText: "https://api.cloud.vexa.ai"
-                                text: backend.vexaApiUrl
                                 color: themeManager.textColor
                                 background: Rectangle {
                                     color: themeManager.cardBackground
@@ -1962,7 +2102,6 @@ ApplicationWindow {
                                 id: openaiApiKeyPrefInput
                                 Layout.fillWidth: true
                                 placeholderText: "sk-..."
-                                text: backend.openaiApiKey
                                 echoMode: TextInput.Password
                                 color: themeManager.textColor
                                 background: Rectangle {
@@ -1989,7 +2128,6 @@ ApplicationWindow {
                                 id: claudeApiKeyPrefInput
                                 Layout.fillWidth: true
                                 placeholderText: "sk-ant-..."
-                                text: backend.claudeApiKey
                                 echoMode: TextInput.Password
                                 color: themeManager.textColor
                                 background: Rectangle {
@@ -2016,7 +2154,6 @@ ApplicationWindow {
                                 id: geminiApiKeyPrefInput
                                 Layout.fillWidth: true
                                 placeholderText: "Your Gemini API Key"
-                                text: backend.geminiApiKey
                                 echoMode: TextInput.Password
                                 color: themeManager.textColor
                                 background: Rectangle {
@@ -2270,7 +2407,8 @@ ApplicationWindow {
         id: aboutDialog
         modal: true
         anchors.centerIn: parent
-        width: 400
+        width: 500
+        height: 450
         title: "About Dailies Notes Assistant"
 
         background: Rectangle {
@@ -2282,7 +2420,16 @@ ApplicationWindow {
 
         ColumnLayout {
             anchors.fill: parent
-            spacing: 16
+            spacing: 20
+
+            // Logo
+            Image {
+                source: "../img/DNA_temp_logo.png"
+                Layout.preferredWidth: 400
+                Layout.preferredHeight: 200
+                Layout.alignment: Qt.AlignHCenter
+                fillMode: Image.PreserveAspectFit
+            }
 
             Text {
                 text: "DNA Dailies Notes Assistant"
@@ -2293,7 +2440,7 @@ ApplicationWindow {
             }
 
             Text {
-                text: "Version 3.0"
+                text: "Version 3.0 Beta"
                 font.pixelSize: 14
                 color: themeManager.mutedTextColor
                 Layout.alignment: Qt.AlignHCenter
@@ -2314,6 +2461,8 @@ ApplicationWindow {
                 horizontalAlignment: Text.AlignHCenter
             }
 
+            Item { Layout.fillHeight: true }
+
             Button {
                 text: "Close"
                 Layout.alignment: Qt.AlignHCenter
@@ -2321,6 +2470,78 @@ ApplicationWindow {
 
                 onClicked: {
                     aboutDialog.close()
+                }
+
+                background: Rectangle {
+                    color: parent.hovered ? themeManager.accentHover : themeManager.accentColor
+                    radius: 6
+                }
+
+                contentItem: Text {
+                    text: parent.text
+                    color: themeManager.textColor
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    font.pixelSize: 14
+                }
+            }
+        }
+    }
+
+    // Warning Dialog (reusable)
+    Dialog {
+        id: warningDialog
+        modal: true
+        anchors.centerIn: parent
+        width: 400
+        title: "Warning"
+
+        property string warningMessage: ""
+
+        background: Rectangle {
+            color: themeManager.cardBackground
+            border.color: themeManager.borderColor
+            border.width: 1
+            radius: 8
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 20
+
+            Text {
+                text: "ℹ️ Information"
+                font.pixelSize: 18
+                font.bold: true
+                color: themeManager.accentColor
+                Layout.alignment: Qt.AlignHCenter
+            }
+
+            Text {
+                text: {
+                    // Replace keyboard shortcuts with styled version
+                    var msg = warningDialog.warningMessage
+                    // Match patterns like (Ctrl+Shift+P)
+                    msg = msg.replace(/\((Ctrl\+Shift\+[A-Z])\)/g, function(match, shortcut) {
+                        return '(<font color="' + themeManager.accentColor + '"><b>' + shortcut + '</b></font>)'
+                    })
+                    return msg
+                }
+                font.pixelSize: 13
+                color: themeManager.textColor
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                textFormat: Text.RichText
+            }
+
+            Button {
+                text: "OK"
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 100
+
+                onClicked: {
+                    warningDialog.close()
                 }
 
                 background: Rectangle {
