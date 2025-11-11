@@ -2,11 +2,12 @@
 Version Service - Manages versions and their associated notes
 """
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
 import csv
 from io import StringIO
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -153,11 +154,15 @@ async def create_version(version: Version):
 
 @router.get("/versions")
 async def get_versions():
-    """Get all versions in order"""
+    """Get all versions in order (excluding scratch version)"""
+    # Filter out the scratch version from the list
+    visible_versions = [
+        _versions[vid].model_dump() for vid in _version_order if vid != "_scratch"
+    ]
     return {
         "status": "success",
-        "count": len(_versions),
-        "versions": [_versions[vid].model_dump() for vid in _version_order],
+        "count": len(visible_versions),
+        "versions": visible_versions,
     }
 
 
@@ -227,8 +232,8 @@ async def generate_ai_notes(version_id: str, request: GenerateAINotesRequest):
         )
 
     # Import the LLM summary function from note_service
-    from note_service import LLMSummaryRequest
     import httpx
+    from note_service import LLMSummaryRequest
 
     # Call the LLM summary endpoint (internal call)
     # In a real implementation, you might want to import and call the function directly
@@ -288,19 +293,31 @@ async def clear_versions():
 
 
 @router.get("/versions/export/csv")
-async def export_csv():
-    """Export all versions and their notes to CSV format"""
-    from fastapi.responses import StreamingResponse
+async def export_csv(include_status: bool = False):
+    """Export all versions and their notes to CSV format (excluding scratch version)
+
+    Args:
+        include_status: If True, includes a Status column in the CSV export
+    """
     from io import StringIO
+
+    from fastapi.responses import StreamingResponse
 
     output = StringIO()
     writer = csv.writer(output)
 
-    # Write header
-    writer.writerow(["Version", "Note", "Transcript"])
+    # Write header - include Status column if requested
+    if include_status:
+        writer.writerow(["Version", "Note", "Transcript", "Status"])
+    else:
+        writer.writerow(["Version", "Note", "Transcript"])
 
-    # Write each version's notes
+    # Write each version's notes (skip scratch version)
     for version_id in _version_order:
+        # Skip the scratch version
+        if version_id == "_scratch":
+            continue
+
         version = _versions[version_id]
 
         # Split notes by double newline (each note from a user)
@@ -310,10 +327,25 @@ async def export_csv():
             # Write each note as a separate row
             for note in notes:
                 if note.strip():
-                    writer.writerow([version.name, note.strip(), version.transcript])
+                    if include_status:
+                        writer.writerow(
+                            [
+                                version.name,
+                                note.strip(),
+                                version.transcript,
+                                version.status,
+                            ]
+                        )
+                    else:
+                        writer.writerow(
+                            [version.name, note.strip(), version.transcript]
+                        )
         else:
             # Write version even if no notes (with empty note field)
-            writer.writerow([version.name, "", version.transcript])
+            if include_status:
+                writer.writerow([version.name, "", version.transcript, version.status])
+            else:
+                writer.writerow([version.name, "", version.transcript])
 
     output.seek(0)
 

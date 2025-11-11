@@ -5,9 +5,9 @@ ONLY uses backend API - no local storage
 """
 
 import requests
+from config import BACKEND_URL, CONNECTION_RETRY_ATTEMPTS, DEBUG_MODE, REQUEST_TIMEOUT
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
-from config import BACKEND_URL, REQUEST_TIMEOUT, CONNECTION_RETRY_ATTEMPTS, DEBUG_MODE
 from services.vexa_service import VexaService
 
 
@@ -131,14 +131,21 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         self._current_version_note = ""
 
         # Transcript segment tracking for version-specific routing
-        self._version_activation_time = None  # Timestamp when current version was activated
-        self._seen_segment_ids = set()  # Track which segment IDs we've already processed for this version
+        self._version_activation_time = (
+            None  # Timestamp when current version was activated
+        )
+        self._seen_segment_ids = (
+            set()
+        )  # Track which segment IDs we've already processed for this version
 
         # Load settings from .env file
         self.load_settings()
 
         # Check if ShotGrid is enabled and load projects
         self._check_shotgrid_enabled()
+
+        # Create a default scratch version for notes
+        self._create_scratch_version()
 
     def _check_backend_connection(self):
         """Check if backend is running"""
@@ -152,6 +159,28 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             print(f"  Please start the backend server first!")
             print(f"  Error: {e}")
             return False
+
+    def _create_scratch_version(self):
+        """Create a default scratch version that's always available"""
+        try:
+            scratch_version = {
+                "id": "_scratch",
+                "name": "Scratch Notes",
+                "user_notes": "",
+                "ai_notes": "",
+                "transcript": "",
+                "status": "",
+            }
+            response = self._make_request("POST", "/versions", json=scratch_version)
+            if response.status_code == 200:
+                self._selected_version_id = "_scratch"
+                self._version_notes["_scratch"] = ""
+                self._current_version_note = ""
+                self.selectedVersionIdChanged.emit()
+                self.selectedVersionNameChanged.emit()
+                print("✓ Created default scratch version")
+        except Exception as e:
+            print(f"Warning: Could not create scratch version: {e}")
 
     def _check_shotgrid_enabled(self):
         """Check if ShotGrid is enabled and load projects if it is"""
@@ -173,8 +202,8 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         url = f"{self._backend_url}{endpoint}"
 
         # Set timeout if not provided
-        if 'timeout' not in kwargs:
-            kwargs['timeout'] = self._request_timeout
+        if "timeout" not in kwargs:
+            kwargs["timeout"] = self._request_timeout
 
         # Retry logic
         last_exception = None
@@ -196,7 +225,9 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                     continue
 
         # All retries failed
-        print(f"ERROR: API request failed after {self._retry_attempts} attempts: {method} {endpoint}")
+        print(
+            f"ERROR: API request failed after {self._retry_attempts} attempts: {method} {endpoint}"
+        )
         print(f"  Error: {last_exception}")
         raise last_exception
 
@@ -379,6 +410,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
             # Reset transcript tracking for new version - start fresh
             import time
+
             self._version_activation_time = time.time()
             self._seen_segment_ids = set()  # Clear the set of seen segments
 
@@ -387,7 +419,9 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             # Using QTimer to make it async and not block the UI
             QTimer.singleShot(0, self._mark_current_segments_as_seen)
 
-            print(f"  Reset transcript tracking - will only capture new segments from now on")
+            print(
+                f"  Reset transcript tracking - will only capture new segments from now on"
+            )
 
             # Emit signals
             self.selectedVersionIdChanged.emit()
@@ -549,6 +583,18 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         self._version_notes[self._selected_version_id] = note_text
         self._current_version_note = note_text
         self.currentVersionNoteChanged.emit()
+
+        # Sync to backend
+        try:
+            response = self._make_request(
+                "GET", f"/versions/{self._selected_version_id}"
+            )
+            if response.status_code == 200:
+                version_data = response.json().get("version", {})
+                version_data["user_notes"] = note_text
+                self._make_request("POST", "/versions", json=version_data)
+        except Exception as e:
+            print(f"ERROR: Failed to sync note to backend: {e}")
 
     @Slot()
     def captureScreenshot(self):
@@ -743,7 +789,9 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
         self._transcription_timer = QTimer()
         self._transcription_timer.timeout.connect(self._poll_transcription)
-        self._transcription_timer.start(1000)  # Poll every 1 second for real-time updates
+        self._transcription_timer.start(
+            1000
+        )  # Poll every 1 second for real-time updates
 
         print("Started transcription polling (every 1 second)")
 
@@ -771,7 +819,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             if segments:
                 # Mark all existing segment IDs as seen
                 for seg in segments:
-                    segment_id = seg.get('id') or seg.get('timestamp', '')
+                    segment_id = seg.get("id") or seg.get("timestamp", "")
                     if segment_id:
                         self._seen_segment_ids.add(segment_id)
 
@@ -803,7 +851,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             # Filter to only NEW segments we haven't seen yet (by segment ID)
             new_segments = []
             for seg in segments:
-                segment_id = seg.get('id') or seg.get('timestamp', '')
+                segment_id = seg.get("id") or seg.get("timestamp", "")
                 # Only process segments we haven't seen before
                 if segment_id and segment_id not in self._seen_segment_ids:
                     new_segments.append(seg)
@@ -849,12 +897,14 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                 f"/versions/{self._selected_version_id}/notes",
                 json={
                     "version_id": self._selected_version_id,
-                    "transcript": transcript_text
-                }
+                    "transcript": transcript_text,
+                },
             )
 
             if response.status_code == 200:
-                print(f"  ✓ Saved transcript to version '{self._selected_version_name}'")
+                print(
+                    f"  ✓ Saved transcript to version '{self._selected_version_name}'"
+                )
             else:
                 print(f"  ✗ Failed to save transcript: {response.text}")
 
@@ -899,13 +949,16 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         print(f"Exporting CSV: {file_path}")
 
         try:
-            response = self._make_request("GET", "/versions/export/csv")
+            # Pass includeStatuses parameter if status mode is enabled
+            params = {"include_status": self._include_statuses}
+            response = self._make_request("GET", "/versions/export/csv", params=params)
 
             # Write response content to file
             with open(file_path, "wb") as f:
                 f.write(response.content)
 
-            print(f"✓ Exported versions to CSV: {file_path}")
+            status_info = " (with Status column)" if self._include_statuses else ""
+            print(f"✓ Exported versions to CSV{status_info}: {file_path}")
 
         except Exception as e:
             print(f"ERROR: Failed to export CSV: {e}")
@@ -1002,7 +1055,11 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
     @Slot()
     def updateShotGridConfig(self):
         """Send ShotGrid configuration to backend"""
-        if not self._shotgrid_url or not self._shotgrid_api_key or not self._shotgrid_script_name:
+        if (
+            not self._shotgrid_url
+            or not self._shotgrid_api_key
+            or not self._shotgrid_script_name
+        ):
             print("ERROR: ShotGrid configuration is incomplete")
             return
 
@@ -1010,7 +1067,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             payload = {
                 "shotgrid_url": self._shotgrid_url,
                 "script_name": self._shotgrid_script_name,
-                "api_key": self._shotgrid_api_key
+                "api_key": self._shotgrid_api_key,
             }
 
             response = self._make_request("POST", "/shotgrid/config", json=payload)
@@ -1164,7 +1221,13 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                         create_response = self._make_request(
                             "POST",
                             "/versions",
-                            json={"id": version_name, "name": version_name, "user_notes": "", "ai_notes": "", "transcript": ""},
+                            json={
+                                "id": version_name,
+                                "name": version_name,
+                                "user_notes": "",
+                                "ai_notes": "",
+                                "transcript": "",
+                            },
                         )
 
                         if create_response.status_code == 200:
@@ -1200,9 +1263,13 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             params = {}
             if self._selected_project_id:
                 params["project_id"] = self._selected_project_id
-                print(f"  Filtering statuses for project ID: {self._selected_project_id}")
+                print(
+                    f"  Filtering statuses for project ID: {self._selected_project_id}"
+                )
 
-            response = self._make_request("GET", "/shotgrid/version-statuses", params=params)
+            response = self._make_request(
+                "GET", "/shotgrid/version-statuses", params=params
+            )
             data = response.json()
 
             if data.get("status") == "success":
@@ -1214,14 +1281,22 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                 if isinstance(statuses_response, dict):
                     # status_dict is {code: display_name}
                     # We want to show display names in the UI but store codes in the backend
-                    self._version_statuses = list(statuses_response.values())  # Display names for UI
-                    self._version_status_codes = {v: k for k, v in statuses_response.items()}  # Reverse map: name -> code
+                    self._version_statuses = list(
+                        statuses_response.values()
+                    )  # Display names for UI
+                    self._version_status_codes = {
+                        v: k for k, v in statuses_response.items()
+                    }  # Reverse map: name -> code
                 elif isinstance(statuses_response, list):
                     # If it's a list of codes, use them as-is (no display names available)
                     self._version_statuses = statuses_response
-                    self._version_status_codes = {v: v for v in statuses_response}  # Map code to itself
+                    self._version_status_codes = {
+                        v: v for v in statuses_response
+                    }  # Map code to itself
                 else:
-                    print(f"ERROR: Unexpected statuses response type: {type(statuses_response)}")
+                    print(
+                        f"ERROR: Unexpected statuses response type: {type(statuses_response)}"
+                    )
                     self._version_statuses = []
                     self._version_status_codes = {}
 
@@ -1267,23 +1342,30 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                             update_response = self._make_request(
                                 "PUT",
                                 f"/versions/{version_id}/notes",
-                                json={"version_id": version_id, "user_notes": None, "ai_notes": None, "transcript": None},
+                                json={
+                                    "version_id": version_id,
+                                    "user_notes": None,
+                                    "ai_notes": None,
+                                    "transcript": None,
+                                },
                             )
 
                             # Also update the version with status field
                             # We need to get the current version data first
-                            get_response = self._make_request("GET", f"/versions/{version_id}")
+                            get_response = self._make_request(
+                                "GET", f"/versions/{version_id}"
+                            )
                             if get_response.status_code == 200:
                                 version_data = get_response.json().get("version", {})
                                 version_data["status"] = status
 
                                 # Update with new status
                                 self._make_request(
-                                    "POST",
-                                    "/versions",
-                                    json=version_data
+                                    "POST", "/versions", json=version_data
                                 )
-                                print(f"  ✓ Updated status for {version_name}: {status}")
+                                print(
+                                    f"  ✓ Updated status for {version_name}: {status}"
+                                )
 
                         except Exception as e:
                             print(f"  ✗ Error updating status for {version_name}: {e}")
@@ -1305,16 +1387,16 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
         try:
             # Get current version data
-            response = self._make_request("GET", f"/versions/{self._selected_version_id}")
+            response = self._make_request(
+                "GET", f"/versions/{self._selected_version_id}"
+            )
             if response.status_code == 200:
                 version_data = response.json().get("version", {})
                 version_data["status"] = status
 
                 # Update version with new status
                 update_response = self._make_request(
-                    "POST",
-                    "/versions",
-                    json=version_data
+                    "POST", "/versions", json=version_data
                 )
 
                 if update_response.status_code == 200:
@@ -1354,7 +1436,9 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                     self._vexa_api_key = settings["vexa_api_key"]
                     self.vexaApiKeyChanged.emit()
                     if self._vexa_api_key:
-                        self._vexa_service = VexaService(self._vexa_api_key, self._vexa_api_url)
+                        self._vexa_service = VexaService(
+                            self._vexa_api_key, self._vexa_api_url
+                        )
 
                 if "vexa_api_url" in settings:
                     self._vexa_api_url = settings["vexa_api_url"]
@@ -1390,7 +1474,9 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
                 return True
             else:
-                print(f"Failed to load settings: {data.get('message', 'Unknown error')}")
+                print(
+                    f"Failed to load settings: {data.get('message', 'Unknown error')}"
+                )
                 return False
 
         except Exception as e:
@@ -1401,9 +1487,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         """Save a single setting to .env file"""
         try:
             response = self._make_request(
-                "POST",
-                "/settings/save-partial",
-                json={field_name: value}
+                "POST", "/settings/save-partial", json={field_name: value}
             )
 
             data = response.json()

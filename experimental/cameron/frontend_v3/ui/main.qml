@@ -134,6 +134,17 @@ ApplicationWindow {
         }
     }
 
+    // Keyboard shortcut to toggle Markdown preview mode
+    Shortcut {
+        sequence: "Ctrl+Shift+M"
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            if (notesEntryContainer) {
+                notesEntryContainer.markdownPreview = !notesEntryContainer.markdownPreview
+            }
+        }
+    }
+
     // Theme Manager (singleton-like object)
     QtObject {
         id: themeManager
@@ -911,6 +922,9 @@ ApplicationWindow {
                                         placeholderText: "AI generated notes will appear here..."
                                         rightPadding: 120  // Make room for buttons
 
+                                        // Always render as Markdown
+                                        textFormat: TextEdit.MarkdownText
+
                                         background: Rectangle {
                                             color: themeManager.inputBackground
                                             border.color: themeManager.borderColor
@@ -993,10 +1007,19 @@ ApplicationWindow {
 
                         // Notes entry area - always visible at bottom
                         Rectangle {
+                            id: notesEntryContainer
                             SplitView.fillHeight: true
                             SplitView.minimumHeight: 80
                             SplitView.preferredHeight: 120
                             color: themeManager.inputBackground
+
+                            property bool markdownPreview: false
+
+                            // Intercept markdown preview changes to set refresh flag BEFORE textFormat changes
+                            onMarkdownPreviewChanged: {
+                                // Set the flag BEFORE the textFormat binding updates
+                                notesEntryArea.isRefreshing = true
+                            }
 
                             ColumnLayout {
                                 anchors.fill: parent
@@ -1088,44 +1111,134 @@ ApplicationWindow {
                                     Item { Layout.fillWidth: true }
                                 }
 
-                                // Notes text area
-                                ScrollView {
+                                // Notes text area with Markdown preview toggle
+                                Item {
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
 
-                                    TextArea {
-                                        id: notesEntryArea
-                                        text: backend.currentVersionNote
-                                        wrapMode: TextArea.Wrap
-                                        color: themeManager.textColor
-                                        placeholderText: "Type your notes here..."
+                                    ScrollView {
+                                        anchors.fill: parent
 
-                                        onTextChanged: (newText) => {
-                                            backend.updateVersionNote(text)
-                                        }
+                                        TextArea {
+                                            id: notesEntryArea
+                                            property bool isRefreshing: false
 
-                                        Keys.onPressed: function(event) {
-                                            // Allow shortcuts to work even when text area has focus
-                                            if (event.modifiers === (Qt.ControlModifier | Qt.ShiftModifier)) {
-                                                if (event.key === Qt.Key_Up) {
-                                                    event.accepted = false  // Let the shortcut handle it
-                                                } else if (event.key === Qt.Key_Down) {
-                                                    event.accepted = false  // Let the shortcut handle it
-                                                } else if (event.key === Qt.Key_A) {
-                                                    event.accepted = false
-                                                } else if (event.key === Qt.Key_R) {
-                                                    event.accepted = false
-                                                } else if (event.key === Qt.Key_F) {
-                                                    event.accepted = false
+                                            // Use direct binding - it will update automatically when backend changes
+                                            text: backend.currentVersionNote
+                                            wrapMode: TextArea.Wrap
+                                            color: themeManager.textColor
+                                            placeholderText: notesEntryContainer.markdownPreview ? "No notes to preview" : "Type your notes here..."
+                                            font.pixelSize: 14
+                                            font.bold: false
+
+                                            // Toggle between plain text and Markdown rendering
+                                            textFormat: notesEntryContainer.markdownPreview ? TextEdit.MarkdownText : TextEdit.PlainText
+                                            readOnly: notesEntryContainer.markdownPreview
+
+                                            // Handle backend updates (version changes)
+                                            Connections {
+                                                target: backend
+                                                function onCurrentVersionNoteChanged() {
+                                                    // When backend changes (version switch), update the text
+                                                    // Mark as refreshing to prevent triggering updateVersionNote
+                                                    notesEntryArea.isRefreshing = true
+                                                    notesEntryArea.text = backend.currentVersionNote
+                                                    Qt.callLater(function() {
+                                                        notesEntryArea.isRefreshing = false
+                                                    })
                                                 }
                                             }
-                                        }
 
-                                        background: Rectangle {
-                                            color: "transparent"
+                                            // Handle markdown preview mode toggle (cleanup phase)
+                                            Connections {
+                                                target: notesEntryContainer
+                                                function onMarkdownPreviewChanged() {
+                                                    if (!notesEntryContainer.markdownPreview) {
+                                                        // Switching TO raw mode - restore raw text from backend
+                                                        var rawText = backend.currentVersionNote
+                                                        notesEntryArea.clear()
+                                                        notesEntryArea.insert(0, rawText)
+                                                        Qt.callLater(function() {
+                                                            // Move cursor to end of text
+                                                            notesEntryArea.cursorPosition = notesEntryArea.length
+                                                            notesEntryArea.isRefreshing = false
+                                                        })
+                                                    } else {
+                                                        // Switching TO preview mode - wait for render to complete
+                                                        Qt.callLater(function() {
+                                                            notesEntryArea.isRefreshing = false
+                                                        })
+                                                    }
+                                                }
+                                            }
+
+                                            onTextChanged: (newText) => {
+                                                if (!notesEntryContainer.markdownPreview && !notesEntryArea.isRefreshing) {
+                                                    backend.updateVersionNote(text)
+                                                }
+                                            }
+
+                                            Keys.onPressed: function(event) {
+                                                // Allow shortcuts to work even when text area has focus
+                                                if (event.modifiers === (Qt.ControlModifier | Qt.ShiftModifier)) {
+                                                    if (event.key === Qt.Key_Up) {
+                                                        event.accepted = false  // Let the shortcut handle it
+                                                    } else if (event.key === Qt.Key_Down) {
+                                                        event.accepted = false  // Let the shortcut handle it
+                                                    } else if (event.key === Qt.Key_A) {
+                                                        event.accepted = false
+                                                    } else if (event.key === Qt.Key_R) {
+                                                        event.accepted = false
+                                                    } else if (event.key === Qt.Key_F) {
+                                                        event.accepted = false
+                                                    }
+                                                }
+                                            }
+
+                                            background: Rectangle {
+                                                color: "transparent"
+                                            }
                                         }
                                     }
                                 }
+                            }
+
+                            // Markdown preview toggle button (direct child of Rectangle)
+                            Button {
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                anchors.topMargin: 4
+                                anchors.rightMargin: 4
+                                width: 24
+                                height: 24
+                                z: 10
+
+                                text: "M"
+
+                                onClicked: {
+                                    notesEntryContainer.markdownPreview = !notesEntryContainer.markdownPreview
+                                }
+
+                                background: Rectangle {
+                                    color: parent.hovered ? themeManager.accentHover : (notesEntryContainer.markdownPreview ? themeManager.accentColor : "transparent")
+                                    radius: 3
+                                    opacity: parent.hovered ? 0.95 : (notesEntryContainer.markdownPreview ? 0.8 : 0.6)
+                                    border.color: themeManager.borderColor
+                                    border.width: notesEntryContainer.markdownPreview ? 0 : 1
+                                }
+
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: themeManager.textColor
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                }
+
+                                ToolTip.visible: hovered
+                                ToolTip.text: notesEntryContainer.markdownPreview ? "Show raw Markdown" : "Preview rendered Markdown"
+                                ToolTip.delay: 500
                             }
 
                             // Border for the entire notes box
@@ -2021,6 +2134,20 @@ ApplicationWindow {
                             }
                             Text {
                                 text: "Ctrl+Shift+D"
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: themeManager.accentColor
+                            }
+
+                            // Toggle Markdown Preview
+                            Text {
+                                text: "Toggle Markdown Preview:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                                Layout.alignment: Qt.AlignRight
+                            }
+                            Text {
+                                text: "Ctrl+Shift+M"
                                 font.pixelSize: 12
                                 font.bold: true
                                 color: themeManager.accentColor

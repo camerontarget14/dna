@@ -182,6 +182,42 @@ The integration handles:
 - **Invalid Selections**: Validates before API calls
 - **Backend Unavailable**: Falls back to manual entry
 
+## CSV Export with Status
+
+When exporting versions to CSV, the status column can be optionally included based on the ShotGrid status mode setting.
+
+### How It Works
+
+1. **Status Mode OFF** (`includeStatuses=False`):
+   - CSV exports with columns: `Version, Note, Transcript`
+   - Standard export without status information
+
+2. **Status Mode ON** (`includeStatuses=True`):
+   - CSV exports with columns: `Version, Note, Transcript, Status`
+   - Status field from each version is included in the export
+   - Status values are exported exactly as stored (e.g., "rev", "fin", "wtg")
+
+### Usage
+
+The status column inclusion is automatic and controlled by the "Include Statuses" toggle in the ShotGrid settings:
+
+1. Enable "Include Statuses" in ShotGrid settings
+2. Load versions from a ShotGrid playlist (statuses will be populated)
+3. Export to CSV - the Status column will be automatically included
+4. The exported CSV will contain the current status for each version
+
+### Backend Implementation
+
+- **Endpoint**: `GET /versions/export/csv?include_status=true`
+- **Parameter**: `include_status` (boolean, default: false)
+- **Location**: `backend/version_service.py`
+
+### Frontend Implementation
+
+- **Method**: `BackendService.exportCSV(file_url)`
+- **Behavior**: Automatically passes `include_status` based on `includeStatuses` property
+- **Location**: `frontend_v3/services/backend_service.py`
+
 ## Future Enhancements
 
 Potential additions:
@@ -190,8 +226,9 @@ Potential additions:
 - Filter playlists by date range
 - Show playlist notes/description
 - Bulk operations on playlist items
-- Direct ShotGrid status updates
+- Direct ShotGrid status updates from UI
 - Link versions to ShotGrid review notes
+- Import CSV with status column to update statuses
 
 ## Comparison to SPI Implementation
 
