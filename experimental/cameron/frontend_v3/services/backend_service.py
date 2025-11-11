@@ -51,6 +51,9 @@ class BackendService(QObject):
     vexaApiKeyChanged = Signal()
     vexaApiUrlChanged = Signal()
 
+    # Attachments
+    attachmentsChanged = Signal()
+
     def __init__(self, backend_url=None):
         super().__init__()
         # Use provided URL, environment variable, or default
@@ -1501,3 +1504,103 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         except Exception as e:
             print(f"ERROR: Failed to save setting {field_name}: {e}")
             return False
+
+    # ===== Image Attachments =====
+
+    @Slot(str)
+    def addAttachment(self, file_path):
+        """Add an image attachment to the current version"""
+        if not self._selected_version_id:
+            print("ERROR: No version selected")
+            return False
+
+        # Convert file URL to path if needed
+        if file_path.startswith("file://"):
+            file_path = file_path.replace("file://", "")
+
+        # Extract filename from path
+        import os
+
+        filename = os.path.basename(file_path)
+
+        print(f"Adding attachment to version {self._selected_version_id}: {filename}")
+
+        try:
+            response = self._make_request(
+                "POST",
+                f"/versions/{self._selected_version_id}/attachments",
+                json={
+                    "version_id": self._selected_version_id,
+                    "filepath": file_path,
+                    "filename": filename,
+                },
+            )
+
+            if response.status_code == 200:
+                print(f"✓ Added attachment: {filename}")
+                self.attachmentsChanged.emit()
+                return True
+            else:
+                print(f"✗ Failed to add attachment: {response.text}")
+                return False
+
+        except Exception as e:
+            print(f"ERROR: Failed to add attachment: {e}")
+            return False
+
+    @Slot(str)
+    def removeAttachment(self, file_path):
+        """Remove an image attachment from the current version"""
+        if not self._selected_version_id:
+            print("ERROR: No version selected")
+            return False
+
+        print(
+            f"Removing attachment from version {self._selected_version_id}: {file_path}"
+        )
+
+        try:
+            response = self._make_request(
+                "DELETE",
+                f"/versions/{self._selected_version_id}/attachments",
+                json={
+                    "version_id": self._selected_version_id,
+                    "filepath": file_path,
+                },
+            )
+
+            if response.status_code == 200:
+                print(f"✓ Removed attachment: {file_path}")
+                self.attachmentsChanged.emit()
+                return True
+            else:
+                print(f"✗ Failed to remove attachment: {response.text}")
+                return False
+
+        except Exception as e:
+            print(f"ERROR: Failed to remove attachment: {e}")
+            return False
+
+    @Slot(result=list)
+    def getAttachments(self):
+        """Get all attachments for the current version"""
+        if not self._selected_version_id:
+            return []
+
+        try:
+            response = self._make_request(
+                "GET",
+                f"/versions/{self._selected_version_id}/attachments",
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                attachments = data.get("attachments", [])
+                return attachments
+            else:
+                print(f"✗ Failed to get attachments: {response.text}")
+                return []
+
+        except Exception as e:
+            print(f"ERROR: Failed to get attachments: {e}")
+            return []

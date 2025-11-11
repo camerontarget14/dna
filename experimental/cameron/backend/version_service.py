@@ -15,6 +15,13 @@ router = APIRouter()
 # ===== Data Models =====
 
 
+class Attachment(BaseModel):
+    """An image attachment with its file path"""
+
+    filepath: str
+    filename: str
+
+
 class Version(BaseModel):
     """A version with its associated data"""
 
@@ -24,6 +31,7 @@ class Version(BaseModel):
     ai_notes: str = ""
     transcript: str = ""
     status: str = ""  # ShotGrid version status
+    attachments: List[Attachment] = []  # Image attachments
 
 
 class AddNoteRequest(BaseModel):
@@ -52,6 +60,21 @@ class GenerateAINotesRequest(BaseModel):
     prompt: Optional[str] = None  # Custom prompt for LLM
     provider: Optional[str] = None  # LLM provider (openai, claude, gemini)
     api_key: Optional[str] = None  # API key for LLM provider
+
+
+class AddAttachmentRequest(BaseModel):
+    """Request to add an attachment to a version"""
+
+    version_id: str
+    filepath: str
+    filename: str
+
+
+class RemoveAttachmentRequest(BaseModel):
+    """Request to remove an attachment from a version"""
+
+    version_id: str
+    filepath: str
 
 
 # ===== In-Memory Storage =====
@@ -282,6 +305,58 @@ async def delete_version(version_id: str):
     return {"status": "success", "message": f"Version '{version_id}' deleted"}
 
 
+@router.post("/versions/{version_id}/attachments")
+async def add_attachment(version_id: str, request: AddAttachmentRequest):
+    """Add an image attachment to a version"""
+    if version_id not in _versions:
+        raise HTTPException(status_code=404, detail=f"Version '{version_id}' not found")
+
+    version = _versions[version_id]
+
+    # Check if attachment already exists
+    for att in version.attachments:
+        if att.filepath == request.filepath:
+            return {"status": "success", "message": "Attachment already exists"}
+
+    # Add new attachment
+    attachment = Attachment(filepath=request.filepath, filename=request.filename)
+    version.attachments.append(attachment)
+
+    print(f"Added attachment '{request.filename}' to version '{version_id}'")
+    return {"status": "success", "version": version.model_dump()}
+
+
+@router.delete("/versions/{version_id}/attachments")
+async def remove_attachment(version_id: str, request: RemoveAttachmentRequest):
+    """Remove an image attachment from a version"""
+    if version_id not in _versions:
+        raise HTTPException(status_code=404, detail=f"Version '{version_id}' not found")
+
+    version = _versions[version_id]
+
+    # Find and remove attachment
+    for i, att in enumerate(version.attachments):
+        if att.filepath == request.filepath:
+            version.attachments.pop(i)
+            print(f"Removed attachment '{att.filename}' from version '{version_id}'")
+            return {"status": "success", "version": version.model_dump()}
+
+    raise HTTPException(status_code=404, detail="Attachment not found")
+
+
+@router.get("/versions/{version_id}/attachments")
+async def get_attachments(version_id: str):
+    """Get all attachments for a version"""
+    if version_id not in _versions:
+        raise HTTPException(status_code=404, detail=f"Version '{version_id}' not found")
+
+    version = _versions[version_id]
+    return {
+        "status": "success",
+        "attachments": [att.model_dump() for att in version.attachments],
+    }
+
+
 @router.delete("/versions")
 async def clear_versions():
     """Clear all versions"""
@@ -306,11 +381,11 @@ async def export_csv(include_status: bool = False):
     output = StringIO()
     writer = csv.writer(output)
 
-    # Write header - include Status column if requested
+    # Write header - include Status and Images columns if requested
     if include_status:
-        writer.writerow(["Version", "Note", "Transcript", "Status"])
+        writer.writerow(["Version", "Note", "Transcript", "Status", "Images"])
     else:
-        writer.writerow(["Version", "Note", "Transcript"])
+        writer.writerow(["Version", "Note", "Transcript", "Images"])
 
     # Write each version's notes (skip scratch version)
     for version_id in _version_order:
@@ -319,6 +394,13 @@ async def export_csv(include_status: bool = False):
             continue
 
         version = _versions[version_id]
+
+        # Get image attachments as semicolon-separated paths
+        image_paths = (
+            ";".join([att.filepath for att in version.attachments])
+            if version.attachments
+            else ""
+        )
 
         # Split notes by double newline (each note from a user)
         notes = version.user_notes.split("\n\n") if version.user_notes else []
@@ -334,18 +416,26 @@ async def export_csv(include_status: bool = False):
                                 note.strip(),
                                 version.transcript,
                                 version.status,
+                                image_paths,
                             ]
                         )
                     else:
                         writer.writerow(
-                            [version.name, note.strip(), version.transcript]
+                            [
+                                version.name,
+                                note.strip(),
+                                version.transcript,
+                                image_paths,
+                            ]
                         )
         else:
             # Write version even if no notes (with empty note field)
             if include_status:
-                writer.writerow([version.name, "", version.transcript, version.status])
+                writer.writerow(
+                    [version.name, "", version.transcript, version.status, image_paths]
+                )
             else:
-                writer.writerow([version.name, "", version.transcript])
+                writer.writerow([version.name, "", version.transcript, image_paths])
 
     output.seek(0)
 

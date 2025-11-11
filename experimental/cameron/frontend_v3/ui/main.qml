@@ -36,7 +36,6 @@ ApplicationWindow {
         sequence: "Ctrl+Shift+T"
         context: Qt.ApplicationShortcut
         onActivated: {
-            console.log("Theme customizer shortcut activated")
             if (themeCustomizer.opened) {
                 themeCustomizer.close()
             } else {
@@ -50,7 +49,6 @@ ApplicationWindow {
         sequence: "Ctrl+Shift+P"
         context: Qt.ApplicationShortcut
         onActivated: {
-            console.log("Preferences shortcut activated")
             preferencesDialog.visible = !preferencesDialog.visible
         }
     }
@@ -59,8 +57,6 @@ ApplicationWindow {
     Shortcut {
         sequence: "Ctrl+Shift+U"
         onActivated: {
-            console.log("Toggle top section - current state:", topSectionVisible)
-
             if (!topSectionVisible) {
                 // Showing upper widgets - check if window needs expansion
                 if (root.width < 1100) {
@@ -83,7 +79,6 @@ ApplicationWindow {
             }
 
             topSectionVisible = !topSectionVisible
-            console.log("Toggle top section - new state:", topSectionVisible)
         }
     }
 
@@ -91,7 +86,6 @@ ApplicationWindow {
     Shortcut {
         sequence: "Ctrl+Shift+S"
         onActivated: {
-            console.log("Toggle versions list - current state:", versionsListVisible)
 
             // If showing the versions list, expand window to the left
             if (!versionsListVisible) {
@@ -115,7 +109,6 @@ ApplicationWindow {
             }
 
             versionsListVisible = !versionsListVisible
-            console.log("Toggle versions list - new state:", versionsListVisible)
         }
     }
 
@@ -1125,11 +1118,27 @@ ApplicationWindow {
                         Rectangle {
                             id: notesEntryContainer
                             SplitView.fillHeight: true
-                            SplitView.minimumHeight: 80
-                            SplitView.preferredHeight: 120
+                            SplitView.minimumHeight: 120
+                            SplitView.preferredHeight: 180
                             color: themeManager.inputBackground
 
                             property bool markdownPreview: false
+                            property var attachmentsList: []
+
+                            // Load attachments when version changes
+                            Connections {
+                                target: backend
+                                function onSelectedVersionIdChanged() {
+                                    notesEntryContainer.attachmentsList = backend.getAttachments()
+                                }
+                                function onAttachmentsChanged() {
+                                    notesEntryContainer.attachmentsList = backend.getAttachments()
+                                }
+                            }
+
+                            Component.onCompleted: {
+                                notesEntryContainer.attachmentsList = backend.getAttachments()
+                            }
 
                             // Intercept markdown preview changes to set refresh flag BEFORE textFormat changes
                             onMarkdownPreviewChanged: {
@@ -1229,6 +1238,7 @@ ApplicationWindow {
 
                                 // Notes text area with Markdown preview toggle
                                 Item {
+                                    id: notesTextAreaItem
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
 
@@ -1313,6 +1323,94 @@ ApplicationWindow {
 
                                             background: Rectangle {
                                                 color: "transparent"
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Image thumbnails display area at bottom right
+                                Item {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: notesEntryContainer.attachmentsList.length > 0 ? 80 : 0
+                                    visible: notesEntryContainer.attachmentsList.length > 0
+
+                                    ScrollView {
+                                        anchors.right: parent.right
+                                        anchors.bottom: parent.bottom
+                                        anchors.top: parent.top
+                                        anchors.margins: 4
+                                        width: Math.min(parent.width, (notesEntryContainer.attachmentsList.length * 72))
+                                        clip: true
+
+                                        Flow {
+                                            spacing: 8
+                                            layoutDirection: Qt.RightToLeft
+
+                                            Repeater {
+                                                model: notesEntryContainer.attachmentsList
+
+                                                Rectangle {
+                                                    width: 64
+                                                    height: 64
+                                                    color: themeManager.cardBackground
+                                                    radius: 4
+                                                    border.color: themeManager.borderColor
+                                                    border.width: 1
+
+                                                    Image {
+                                                        anchors.fill: parent
+                                                        anchors.margins: 2
+                                                        source: "file://" + modelData.filepath
+                                                        fillMode: Image.PreserveAspectCrop
+                                                        asynchronous: true
+                                                        cache: false
+
+                                                        MouseArea {
+                                                            anchors.fill: parent
+                                                            hoverEnabled: true
+                                                            cursorShape: Qt.PointingHandCursor
+
+                                                            ToolTip.visible: containsMouse
+                                                            ToolTip.text: modelData.filename
+                                                            ToolTip.delay: 500
+                                                        }
+                                                    }
+
+                                                    // Delete button overlay
+                                                    Rectangle {
+                                                        anchors.top: parent.top
+                                                        anchors.right: parent.right
+                                                        anchors.margins: 2
+                                                        width: 18
+                                                        height: 18
+                                                        color: "#d32f2f"
+                                                        radius: 9
+                                                        opacity: deleteMouseArea.containsMouse ? 1 : 0.7
+
+                                                        Text {
+                                                            anchors.centerIn: parent
+                                                            text: "×"
+                                                            color: "white"
+                                                            font.pixelSize: 14
+                                                            font.bold: true
+                                                        }
+
+                                                        MouseArea {
+                                                            id: deleteMouseArea
+                                                            anchors.fill: parent
+                                                            hoverEnabled: true
+                                                            cursorShape: Qt.PointingHandCursor
+
+                                                            onClicked: {
+                                                                backend.removeAttachment(modelData.filepath)
+                                                            }
+
+                                                            ToolTip.visible: containsMouse
+                                                            ToolTip.text: "Remove image"
+                                                            ToolTip.delay: 500
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -2953,33 +3051,76 @@ ApplicationWindow {
         anchors.fill: parent
 
         property bool isDraggingCsv: false
+        property bool isDraggingImage: false
+
+        function isImageFile(url) {
+            var urlStr = url.toString().toLowerCase()
+            // Check for explicit image extensions
+            if (urlStr.endsWith('.png') || urlStr.endsWith('.jpg') ||
+                urlStr.endsWith('.jpeg') || urlStr.endsWith('.gif') ||
+                urlStr.endsWith('.bmp') || urlStr.endsWith('.tiff')) {
+                return true
+            }
+            // Check for image formats (like screenshots) that might not have extensions
+            // These often have "image" in the mime type or URL
+            if (urlStr.includes('image') || urlStr.includes('screenshot')) {
+                return true
+            }
+            // Check for macOS screenshot naming pattern: "Screenshot YYYY-MM-DD at H.MM.SS AM/PM"
+            // Extract just the filename from the URL path
+            var filename = urlStr.split('/').pop()
+            if (filename.startsWith('screenshot ') && filename.match(/\d{4}-\d{2}-\d{2}/)) {
+                return true
+            }
+            return false
+        }
 
         onEntered: function(drag) {
             if (drag.hasUrls) {
-                var url = drag.urls[0].toString()
-                if (url.toLowerCase().endsWith('.csv')) {
+                var url = drag.urls[0].toString().toLowerCase()
+                if (url.endsWith('.csv')) {
                     isDraggingCsv = true
                     drag.accept(Qt.CopyAction)
+                } else if (isImageFile(drag.urls[0])) {
+                    // Check if we're over the notes area
+                    if (notesEntryContainer && notesEntryContainer.visible) {
+                        isDraggingImage = true
+                        drag.accept(Qt.CopyAction)
+                        console.log("Notes container position:", notesEntryContainer.mapToItem(null, 0, 0))
+                        console.log("Notes container size:", notesEntryContainer.width, "x", notesEntryContainer.height)
+                    }
                 }
             }
         }
 
         onExited: {
             isDraggingCsv = false
+            isDraggingImage = false
         }
 
         onDropped: function(drop) {
-            isDraggingCsv = false
             if (drop.hasUrls && drop.urls.length > 0) {
                 var filePath = drop.urls[0]
-                if (filePath.toString().toLowerCase().endsWith('.csv')) {
+                var filePathStr = filePath.toString().toLowerCase()
+
+                if (filePathStr.endsWith('.csv')) {
+                    isDraggingCsv = false
                     backend.importCSV(filePath)
+                    drop.accept(Qt.CopyAction)
+                } else if (isImageFile(drop.urls[0])) {
+                    isDraggingImage = false
+                    // Add all image files
+                    for (var i = 0; i < drop.urls.length; i++) {
+                        if (isImageFile(drop.urls[i])) {
+                            backend.addAttachment(drop.urls[i].toString())
+                        }
+                    }
                     drop.accept(Qt.CopyAction)
                 }
             }
         }
 
-        // Dark overlay with message
+        // Dark overlay with message for CSV
         Rectangle {
             anchors.fill: parent
             color: "#000000"
@@ -3015,6 +3156,43 @@ ApplicationWindow {
                     color: "#cccccc"
                     Layout.alignment: Qt.AlignHCenter
                 }
+            }
+        }
+
+        // Overlay with message for images - limited to notes area only
+        Rectangle {
+            id: imageOverlay
+
+            x: 0
+            y: 0
+            width: 0
+            height: 0
+            color: "#000000"
+            opacity: globalDropArea.isDraggingImage ? 0.8 : 0
+            visible: opacity > 0
+            radius: 6
+
+            Behavior on opacity {
+                NumberAnimation { duration: 200 }
+            }
+
+            onVisibleChanged: {
+                if (visible && notesEntryContainer) {
+                    var pos = notesEntryContainer.mapToItem(null, 0, 0)
+                    x = pos.x
+                    y = pos.y
+                    width = notesEntryContainer.width
+                    height = notesEntryContainer.height
+                    console.log("Image overlay updated to:", x, y, "size:", width, height)
+                }
+            }
+
+            Text {
+                anchors.centerIn: parent
+                text: "Drop image to attach to notes"
+                font.pixelSize: 18
+                font.bold: true
+                color: "#ffffff"
             }
         }
     }
