@@ -2506,8 +2506,56 @@ ApplicationWindow {
         modal: true
         anchors.centerIn: parent
         width: 500
-        height: 450
         title: "About Dailies Notes Assistant"
+
+        property int minRequiredWidth: 550
+        property int minRequiredHeight: 650
+        property int previousWidth: 0
+        property int previousHeight: 0
+        property bool wasExpanded: false
+
+        onAboutToShow: {
+            // Check if window is too small for about dialog
+            var needsWidthExpansion = root.width < minRequiredWidth
+            var needsHeightExpansion = root.height < minRequiredHeight
+
+            if (needsWidthExpansion || needsHeightExpansion) {
+                // Store current dimensions
+                previousWidth = root.width
+                previousHeight = root.height
+                wasExpanded = true
+
+                // Expand to accommodate dialog
+                if (needsWidthExpansion) {
+                    var widthDiff = minRequiredWidth - root.width
+                    root.x = root.x - Math.floor(widthDiff / 2)
+                    root.width = minRequiredWidth
+                }
+                if (needsHeightExpansion) {
+                    var heightDiff = minRequiredHeight - root.height
+                    root.y = root.y - Math.floor(heightDiff / 2)
+                    root.height = minRequiredHeight
+                }
+            } else {
+                wasExpanded = false
+            }
+        }
+
+        onClosed: {
+            // Restore previous dimensions if we expanded
+            if (wasExpanded) {
+                var currentCenterX = root.x + root.width / 2
+                var currentCenterY = root.y + root.height / 2
+
+                root.width = previousWidth
+                root.height = previousHeight
+
+                root.x = currentCenterX - root.width / 2
+                root.y = currentCenterY - root.height / 2
+
+                wasExpanded = false
+            }
+        }
 
         background: Rectangle {
             color: themeManager.cardBackground
@@ -2538,7 +2586,7 @@ ApplicationWindow {
             }
 
             Text {
-                text: "Version 3.0 Beta"
+                text: "Version 3.0 Alpha"
                 font.pixelSize: 14
                 color: themeManager.mutedTextColor
                 Layout.alignment: Qt.AlignHCenter
@@ -2583,6 +2631,8 @@ ApplicationWindow {
                     font.pixelSize: 14
                 }
             }
+
+            Item { Layout.fillHeight: true }
         }
     }
 
