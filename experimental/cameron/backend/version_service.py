@@ -25,8 +25,9 @@ class Attachment(BaseModel):
 class Version(BaseModel):
     """A version with its associated data"""
 
-    id: str
+    id: str  # Internal unique identifier (auto-generated if not provided)
     name: str  # Display name (from leftmost CSV column)
+    shotgrid_version_id: Optional[int] = None  # ShotGrid version ID (unique integer for syncing)
     user_notes: str = ""
     ai_notes: str = ""
     transcript: str = ""
@@ -91,9 +92,12 @@ async def upload_csv(file: UploadFile = File(...)):
     """
     Upload a CSV file to create versions.
     CSV format:
-    - First column: Version Name (required)
-    - Optional "ID" column: Version ID
+    - First column: Version Name (required, used for display)
+    - Optional "ID" column: Version ID (internal identifier)
+    - Optional "Version Code" column: ShotGrid version code (for syncing)
     - Header row is skipped
+
+    If no ID column is provided, auto-generates IDs (v_1, v_2, v_3, etc.)
     """
     content = await file.read()
     decoded = content.decode("utf-8", errors="ignore")
@@ -107,8 +111,9 @@ async def upload_csv(file: UploadFile = File(...)):
     # Version Name is ALWAYS the first column (leftmost)
     version_name_idx = 0
 
-    # Look for "ID" column for Version ID (optional)
+    # Look for optional ID column
     version_id_idx = None
+
     for idx, col in enumerate(header):
         col_lower = col.lower().strip()
         if col_lower == "id":
@@ -117,11 +122,13 @@ async def upload_csv(file: UploadFile = File(...)):
 
     # Read data rows (header is already skipped)
     versions_data = []
+    auto_id_counter = 1
+
     for row in reader:
         if row and len(row) > 0 and row[0].strip():  # Skip empty rows
             version_name = row[0].strip()
 
-            # Get ID from ID column if present, otherwise use name as ID
+            # Get ID from ID column if present, otherwise auto-generate
             if (
                 version_id_idx is not None
                 and len(row) > version_id_idx
@@ -129,9 +136,13 @@ async def upload_csv(file: UploadFile = File(...)):
             ):
                 version_id = row[version_id_idx].strip()
             else:
-                version_id = version_name
+                version_id = f"v_{auto_id_counter}"
+                auto_id_counter += 1
 
-            versions_data.append({"id": version_id, "name": version_name})
+            versions_data.append({
+                "id": version_id,
+                "name": version_name
+            })
 
     # Clear existing versions and add new ones
     _versions.clear()
@@ -141,6 +152,7 @@ async def upload_csv(file: UploadFile = File(...)):
         version = Version(
             id=version_data["id"],
             name=version_data["name"],
+            shotgrid_version_id=None,  # CSV workflow doesn't sync to ShotGrid
             user_notes="",
             ai_notes="",
             transcript="",
@@ -149,8 +161,11 @@ async def upload_csv(file: UploadFile = File(...)):
         _versions[version.id] = version
         _version_order.append(version.id)
 
+    has_ids = version_id_idx is not None
+
     print(
-        f"Loaded {len(_versions)} versions from CSV (ID column {'found' if version_id_idx is not None else 'not found'})"
+        f"Loaded {len(_versions)} versions from CSV "
+        f"(ID column: {'found' if has_ids else 'auto-generated'})"
     )
 
     return {

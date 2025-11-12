@@ -39,12 +39,18 @@ class BackendService(QObject):
     shotgridUrlChanged = Signal()
     shotgridApiKeyChanged = Signal()
     shotgridScriptNameChanged = Signal()
+    shotgridAuthorEmailChanged = Signal()
+    prependSessionHeaderChanged = Signal()
     includeStatusesChanged = Signal()
     versionStatusesChanged = Signal()
     selectedVersionStatusChanged = Signal()
 
     # Versions
     versionsLoaded = Signal()
+    hasShotGridVersionsChanged = Signal()
+
+    # Sync signals
+    syncCompleted = Signal(int, int, int, int, bool)  # synced, skipped, failed, attachments, statuses_updated
 
     # Vexa/Meeting signals
     meetingStatusChanged = Signal()
@@ -121,9 +127,12 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         self._shotgrid_playlists_data = []
         self._selected_project_id = None
         self._selected_playlist_id = None
+        self._has_shotgrid_versions = False
         self._shotgrid_url = ""
         self._shotgrid_api_key = ""
         self._shotgrid_script_name = ""
+        self._shotgrid_author_email = ""
+        self._prepend_session_header = False
         self._include_statuses = False
         self._version_statuses = []  # List of display names for UI
         self._version_status_codes = {}  # Dict mapping display names to codes
@@ -937,6 +946,10 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
             print(f"✓ Imported {count} versions from CSV")
 
+            # CSV versions are not from ShotGrid
+            self._has_shotgrid_versions = False
+            self.hasShotGridVersionsChanged.emit()
+
             # Emit signal to reload versions
             self.versionsLoaded.emit()
 
@@ -976,6 +989,10 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
     def shotgridPlaylists(self):
         return self._shotgrid_playlists
 
+    @Property(bool, notify=hasShotGridVersionsChanged)
+    def hasShotGridVersions(self):
+        return self._has_shotgrid_versions
+
     @Property(str, notify=shotgridUrlChanged)
     def shotgridUrl(self):
         return self._shotgrid_url
@@ -1014,6 +1031,30 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             print(f"ShotGrid Script Name updated: {value}")
             self.save_setting("shotgrid_script_name", value)
             self._try_update_shotgrid_config()
+
+    @Property(str, notify=shotgridAuthorEmailChanged)
+    def shotgridAuthorEmail(self):
+        return self._shotgrid_author_email
+
+    @shotgridAuthorEmail.setter
+    def shotgridAuthorEmail(self, value):
+        if self._shotgrid_author_email != value:
+            self._shotgrid_author_email = value
+            self.shotgridAuthorEmailChanged.emit()
+            print(f"ShotGrid Author Email updated: {value}")
+            self.save_setting("shotgrid_author_email", value)
+
+    @Property(bool, notify=prependSessionHeaderChanged)
+    def prependSessionHeader(self):
+        return self._prepend_session_header
+
+    @prependSessionHeader.setter
+    def prependSessionHeader(self, value):
+        if self._prepend_session_header != value:
+            self._prepend_session_header = value
+            self.prependSessionHeaderChanged.emit()
+            print(f"Prepend Session Header updated: {value}")
+            self.save_setting("prepend_session_header", value)
 
     @Property(bool, notify=includeStatusesChanged)
     def includeStatuses(self):
@@ -1211,13 +1252,14 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                 print(f"✓ Loaded {len(items)} items from ShotGrid playlist")
 
                 # Create versions via backend API
-                for item in items:
-                    # Item format is "shot_name/version_name"
-                    # Extract just the version name (part after the /)
-                    if "/" in item:
-                        version_name = item.split("/")[-1]
-                    else:
-                        version_name = item
+                # Items are now dicts with 'id' (ShotGrid version ID) and 'name' (display name)
+                for idx, item in enumerate(items):
+                    # Generate internal version ID
+                    internal_id = f"sg_{idx + 1}"
+
+                    # Extract ShotGrid version ID and display name
+                    shotgrid_version_id = item.get("id")
+                    display_name = item.get("name")
 
                     try:
                         # Create version via backend
@@ -1225,8 +1267,9 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                             "POST",
                             "/versions",
                             json={
-                                "id": version_name,
-                                "name": version_name,
+                                "id": internal_id,
+                                "name": display_name,
+                                "shotgrid_version_id": shotgrid_version_id,
                                 "user_notes": "",
                                 "ai_notes": "",
                                 "transcript": "",
@@ -1234,14 +1277,18 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                         )
 
                         if create_response.status_code == 200:
-                            print(f"  ✓ Created version: {item}")
+                            print(f"  ✓ Created version: {display_name} (SG ID: {shotgrid_version_id})")
                         else:
                             print(
-                                f"  ✗ Failed to create version: {item} - {create_response.text}"
+                                f"  ✗ Failed to create version: {display_name} - {create_response.text}"
                             )
 
                     except Exception as e:
-                        print(f"  ✗ Error creating version {item}: {e}")
+                        print(f"  ✗ Error creating version {display_name}: {e}")
+
+                # Set flag that ShotGrid versions are loaded
+                self._has_shotgrid_versions = True
+                self.hasShotGridVersionsChanged.emit()
 
                 # Emit signal to reload versions
                 self.versionsLoaded.emit()
@@ -1410,6 +1457,147 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         except Exception as e:
             print(f"ERROR: Failed to update version status: {e}")
 
+    @Slot()
+    def syncNotesToShotGrid(self):
+        """Batch sync all playlist version notes to ShotGrid in one operation"""
+        print(f"\n=== Starting Batch Sync to ShotGrid ===")
+
+        # Get all versions to sync the entire playlist
+        try:
+            response = self._make_request("GET", "/versions")
+            versions_data = response.json().get("versions", [])
+        except Exception as e:
+            print(f"ERROR: Failed to get versions: {e}")
+            return False
+
+        if not versions_data:
+            print("ERROR: No versions loaded")
+            return False
+
+        # Collect versions with notes that have ShotGrid IDs
+        versions_to_sync = []
+        skipped_count = 0
+
+        for version in versions_data:
+            vid = version.get("id")
+            sg_version_id = version.get("shotgrid_version_id")
+            user_notes = version.get("user_notes", "")
+            vstatus = version.get("status", "")
+            attachments = version.get("attachments", [])
+
+            # Skip versions without ShotGrid IDs (CSV-loaded versions)
+            if not sg_version_id:
+                continue
+
+            # Skip versions without notes
+            if not user_notes or not user_notes.strip():
+                skipped_count += 1
+                continue
+
+            # Add to sync list
+            version_item = {
+                "version_id": vid,
+                "shotgrid_version_id": sg_version_id,
+                "notes": user_notes.strip()
+            }
+
+            # Include status if enabled
+            if self._include_statuses and vstatus:
+                version_item["status_code"] = vstatus
+
+            # Include attachments if present
+            if attachments:
+                attachment_paths = [att.get("filepath") for att in attachments if att.get("filepath")]
+                if attachment_paths:
+                    version_item["attachments"] = attachment_paths
+
+            versions_to_sync.append(version_item)
+
+        if not versions_to_sync:
+            print(f"⚠ No versions with notes to sync ({skipped_count} versions have no notes)")
+            return False
+
+        print(f"Found {len(versions_to_sync)} version(s) with notes to sync")
+        if skipped_count > 0:
+            print(f"  (Skipping {skipped_count} version(s) without notes)")
+
+        # Get playlist name for session header
+        playlist_name = None
+        if self._prepend_session_header and hasattr(self, "_selected_playlist_id"):
+            if hasattr(self, "_shotgrid_playlists_data"):
+                for playlist in self._shotgrid_playlists_data:
+                    if playlist.get("id") == self._selected_playlist_id:
+                        playlist_name = playlist.get("code", "Daily Session")
+                        break
+
+        # Build batch sync request
+        sync_data = {
+            "versions": versions_to_sync,
+            "author_email": self._shotgrid_author_email if self._shotgrid_author_email else None,
+            "prepend_session_header": self._prepend_session_header,
+            "playlist_name": playlist_name,
+            "session_date": None,  # Will use current date
+            "update_status": self._include_statuses
+        }
+
+        try:
+            # Make API call to batch sync
+            print(f"Syncing {len(versions_to_sync)} version(s) to ShotGrid...")
+            response = self._make_request(
+                "POST",
+                "/shotgrid/batch-sync-notes",
+                json=sync_data
+            )
+
+            data = response.json()
+
+            if data.get("status") == "success":
+                results = data.get("results", {})
+                synced = results.get("synced", [])
+                skipped = results.get("skipped", [])
+                failed = results.get("failed", [])
+
+                print(f"\n✓ Batch sync complete!")
+                print(f"  Synced: {len(synced)} version(s)")
+                if skipped:
+                    print(f"  Skipped: {len(skipped)} duplicate(s)")
+                if failed:
+                    print(f"  Failed: {len(failed)} error(s)")
+
+                # Print details
+                for item in synced:
+                    print(f"    ✓ {item.get('version_code')} → Note ID: {item.get('note_id')}")
+                for item in skipped:
+                    print(f"    ⊘ {item.get('version_code')} (duplicate)")
+                for item in failed:
+                    print(f"    ✗ {item.get('version_id')}: {item.get('error')}")
+
+                # Calculate total attachments uploaded
+                total_attachments = sum(item.get('attachments_uploaded', 0) for item in synced)
+
+                # Check if any statuses were updated
+                any_status_updated = any(item.get('status_updated', False) for item in synced)
+
+                # Emit signal to show completion dialog
+                self.syncCompleted.emit(
+                    len(synced),
+                    len(skipped),
+                    len(failed),
+                    total_attachments,
+                    any_status_updated
+                )
+
+                return len(synced) > 0
+            else:
+                print(f"✗ Failed to batch sync: {data.get('message', 'Unknown error')}")
+                return False
+
+        except Exception as e:
+            print(f"ERROR: Failed to batch sync notes to ShotGrid: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     # ===== Settings Persistence =====
 
     def load_settings(self):
@@ -1434,6 +1622,14 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                 if "shotgrid_script_name" in settings:
                     self._shotgrid_script_name = settings["shotgrid_script_name"]
                     self.shotgridScriptNameChanged.emit()
+
+                if "shotgrid_author_email" in settings:
+                    self._shotgrid_author_email = settings["shotgrid_author_email"]
+                    self.shotgridAuthorEmailChanged.emit()
+
+                if "prepend_session_header" in settings:
+                    self._prepend_session_header = settings["prepend_session_header"]
+                    self.prependSessionHeaderChanged.emit()
 
                 if "vexa_api_key" in settings:
                     self._vexa_api_key = settings["vexa_api_key"]

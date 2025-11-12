@@ -28,6 +28,19 @@ ApplicationWindow {
 
     // Remember window dimensions before auto-expansion
     property int savedWidth: 0
+
+    // Handle sync completion signal
+    Connections {
+        target: backend
+        function onSyncCompleted(synced, skipped, failed, attachments, statusesUpdated) {
+            syncCompleteDialog.syncedCount = synced
+            syncCompleteDialog.skippedCount = skipped
+            syncCompleteDialog.failedCount = failed
+            syncCompleteDialog.attachmentsCount = attachments
+            syncCompleteDialog.statusesUpdated = statusesUpdated
+            syncCompleteDialog.open()
+        }
+    }
     property int savedX: 0
     property bool wasSidebarExpanded: false
 
@@ -328,7 +341,7 @@ ApplicationWindow {
             // Join Meeting Widget
             Rectangle {
                 width: Math.max(300, Math.min(400, (root.width - 48) / 3 - 16))
-                height: 220
+                height: 240
                 color: themeManager.cardBackground
                 radius: themeManager.borderRadius
                 border.color: themeManager.borderColor
@@ -429,7 +442,7 @@ ApplicationWindow {
             // LLM Assistant Widget
             Rectangle {
                 width: Math.max(300, Math.min(400, (root.width - 48) / 3 - 16))
-                height: 220
+                height: 240
                 color: themeManager.cardBackground
                 radius: themeManager.borderRadius
                 border.color: themeManager.borderColor
@@ -594,7 +607,7 @@ ApplicationWindow {
             // Playlists Widget
             Rectangle {
                 width: Math.max(300, Math.min(400, (root.width - 48) / 3 - 16))
-                height: 220
+                height: 240
                 color: themeManager.cardBackground
                 radius: themeManager.borderRadius
                 border.color: themeManager.borderColor
@@ -756,6 +769,46 @@ ApplicationWindow {
                                         verticalAlignment: Text.AlignVCenter
                                         font.pixelSize: 12
                                     }
+                                }
+
+                                Button {
+                                    text: "Sync Playlist Notes"
+                                    Layout.fillWidth: true
+                                    enabled: backend.shotgridUrl && backend.shotgridApiKey && backend.shotgridScriptName && backend.hasShotGridVersions
+
+                                    onClicked: {
+                                        backend.syncNotesToShotGrid()
+                                    }
+
+                                    onPressedChanged: {
+                                        if (pressed && !enabled) {
+                                            // Show warning when clicking disabled button
+                                            if (!backend.shotgridUrl || !backend.shotgridApiKey || !backend.shotgridScriptName) {
+                                                warningDialog.warningMessage = "Please configure ShotGrid credentials in Preferences (Ctrl+Shift+P) before syncing."
+                                                warningDialog.open()
+                                            } else if (!backend.hasShotGridVersions) {
+                                                warningDialog.warningMessage = "Please load a ShotGrid playlist first. CSV playlists cannot be synced to ShotGrid."
+                                                warningDialog.open()
+                                            }
+                                        }
+                                    }
+
+                                    background: Rectangle {
+                                        color: parent.enabled ? (parent.hovered ? themeManager.accentHover : themeManager.accentColor) : "#3a3a3a"
+                                        radius: 6
+                                    }
+
+                                    contentItem: Text {
+                                        text: parent.text
+                                        color: parent.enabled ? themeManager.textColor : "#555555"
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                        font.pixelSize: 12
+                                    }
+
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: backend.shotgridUrl ? "Sync all playlist notes to ShotGrid (batch operation)" : "Configure ShotGrid in Preferences first"
+                                    ToolTip.delay: 500
                                 }
                             }
 
@@ -949,12 +1002,6 @@ ApplicationWindow {
                                 }
                             }
 
-                            Text {
-                                text: backend.selectedVersionId && backend.selectedVersionId !== "" ? "Version ID: " + backend.selectedVersionId : ""
-                                font.pixelSize: 12
-                                color: themeManager.mutedTextColor
-                                visible: backend.selectedVersionId && backend.selectedVersionId !== ""
-                            }
                         }
                     }
 
@@ -1822,6 +1869,8 @@ ApplicationWindow {
         property string tempSgApiKey: ""
         property string tempSgScriptName: ""
         property bool tempIncludeStatuses: false
+        property string tempSgAuthorEmail: ""
+        property bool tempPrependSessionHeader: false
         property string tempVexaApiKey: ""
         property string tempVexaApiUrl: ""
         property string tempOpenaiApiKey: ""
@@ -1834,6 +1883,8 @@ ApplicationWindow {
             tempSgApiKey = backend.shotgridApiKey
             tempSgScriptName = backend.shotgridScriptName
             tempIncludeStatuses = backend.includeStatuses
+            tempSgAuthorEmail = backend.shotgridAuthorEmail || ""
+            tempPrependSessionHeader = backend.prependSessionHeader || false
             tempVexaApiKey = backend.vexaApiKey
             tempVexaApiUrl = backend.vexaApiUrl
             tempOpenaiApiKey = backend.openaiApiKey
@@ -1845,6 +1896,8 @@ ApplicationWindow {
             sgApiKeyInput.text = tempSgApiKey
             sgScriptNameInput.text = tempSgScriptName
             includeStatusesToggle.checked = tempIncludeStatuses
+            sgAuthorEmailInput.text = tempSgAuthorEmail
+            prependSessionHeaderToggle.checked = tempPrependSessionHeader
             vexaApiKeyPrefInput.text = tempVexaApiKey
             vexaApiUrlPrefInput.text = tempVexaApiUrl
             openaiApiKeyPrefInput.text = tempOpenaiApiKey
@@ -2123,6 +2176,98 @@ ApplicationWindow {
 
                             Text {
                                 text: "Enable version status dropdown in notes"
+                                font.pixelSize: 11
+                                color: themeManager.mutedTextColor
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: themeManager.borderColor
+                            Layout.topMargin: 10
+                            Layout.bottomMargin: 10
+                        }
+
+                        Text {
+                            text: "Note Sync Settings"
+                            font.pixelSize: 14
+                            font.bold: true
+                            color: themeManager.textColor
+                        }
+
+                        // Author Email
+                        ColumnLayout {
+                            spacing: 5
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "Author Email:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            TextField {
+                                id: sgAuthorEmailInput
+                                Layout.fillWidth: true
+                                placeholderText: "user@studio.com"
+                                color: themeManager.textColor
+                                background: Rectangle {
+                                    color: themeManager.cardBackground
+                                    border.color: themeManager.borderColor
+                                    border.width: 1
+                                    radius: 4
+                                }
+                            }
+
+                            Text {
+                                text: "Email for note author attribution in ShotGrid"
+                                font.pixelSize: 10
+                                color: themeManager.mutedTextColor
+                            }
+                        }
+
+                        // Prepend Session Header Toggle
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            Text {
+                                text: "Session Header:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            Switch {
+                                id: prependSessionHeaderToggle
+
+                                indicator: Rectangle {
+                                    implicitWidth: 48
+                                    implicitHeight: 24
+                                    x: parent.leftPadding
+                                    y: parent.height / 2 - height / 2
+                                    radius: 12
+                                    color: parent.checked ? themeManager.accentColor : "#555555"
+                                    border.color: parent.checked ? themeManager.accentColor : "#666666"
+
+                                    Rectangle {
+                                        x: parent.parent.checked ? parent.width - width - 2 : 2
+                                        y: (parent.height - height) / 2
+                                        width: 20
+                                        height: 20
+                                        radius: 10
+                                        color: "white"
+
+                                        Behavior on x {
+                                            NumberAnimation { duration: 200 }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text {
+                                text: "Prepend playlist name and date to notes"
                                 font.pixelSize: 11
                                 color: themeManager.mutedTextColor
                                 Layout.fillWidth: true
@@ -2532,6 +2677,8 @@ ApplicationWindow {
                         backend.shotgridApiKey = sgApiKeyInput.text
                         backend.shotgridScriptName = sgScriptNameInput.text
                         backend.includeStatuses = includeStatusesToggle.checked
+                        backend.shotgridAuthorEmail = sgAuthorEmailInput.text
+                        backend.prependSessionHeader = prependSessionHeaderToggle.checked
 
                         // Vexa settings
                         backend.vexaApiKey = vexaApiKeyPrefInput.text
@@ -2739,6 +2886,128 @@ ApplicationWindow {
 
                 onClicked: {
                     warningDialog.close()
+                }
+
+                background: Rectangle {
+                    color: parent.hovered ? themeManager.accentHover : themeManager.accentColor
+                    radius: 6
+                }
+
+                contentItem: Text {
+                    text: parent.text
+                    color: themeManager.textColor
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    font.pixelSize: 14
+                }
+            }
+        }
+    }
+
+    // Sync Complete Dialog
+    Dialog {
+        id: syncCompleteDialog
+        modal: true
+        anchors.centerIn: parent
+        width: 500
+        title: "Sync Complete"
+
+        property int syncedCount: 0
+        property int skippedCount: 0
+        property int failedCount: 0
+        property int attachmentsCount: 0
+        property bool statusesUpdated: false
+
+        background: Rectangle {
+            color: themeManager.cardBackground
+            border.color: themeManager.borderColor
+            border.width: 1
+            radius: 8
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 20
+
+            Text {
+                text: "✓ Sync to ShotGrid Complete"
+                font.pixelSize: 18
+                font.bold: true
+                color: "#4caf50"
+                Layout.alignment: Qt.AlignHCenter
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: 1
+                color: themeManager.borderColor
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                Text {
+                    text: "<b>Summary:</b>"
+                    font.pixelSize: 14
+                    color: themeManager.textColor
+                    textFormat: Text.RichText
+                }
+
+                Text {
+                    text: "✓ <b>" + syncCompleteDialog.syncedCount + "</b> version(s) synced successfully"
+                    font.pixelSize: 13
+                    color: themeManager.textColor
+                    visible: syncCompleteDialog.syncedCount > 0
+                    textFormat: Text.RichText
+                }
+
+                Text {
+                    text: "⊘ <b>" + syncCompleteDialog.skippedCount + "</b> version(s) skipped (duplicates)"
+                    font.pixelSize: 13
+                    color: themeManager.mutedTextColor
+                    visible: syncCompleteDialog.skippedCount > 0
+                    textFormat: Text.RichText
+                }
+
+                Text {
+                    text: "✗ <b>" + syncCompleteDialog.failedCount + "</b> version(s) failed"
+                    font.pixelSize: 13
+                    color: "#f44336"
+                    visible: syncCompleteDialog.failedCount > 0
+                    textFormat: Text.RichText
+                }
+
+                Text {
+                    text: "📎 <b>" + syncCompleteDialog.attachmentsCount + "</b> attachment(s) uploaded"
+                    font.pixelSize: 13
+                    color: themeManager.textColor
+                    visible: syncCompleteDialog.attachmentsCount > 0
+                    textFormat: Text.RichText
+                }
+
+                Text {
+                    text: "🏷️ Version statuses updated"
+                    font.pixelSize: 13
+                    color: themeManager.textColor
+                    visible: syncCompleteDialog.statusesUpdated
+                    textFormat: Text.RichText
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: 1
+                color: themeManager.borderColor
+            }
+
+            Button {
+                text: "OK"
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 120
+
+                onClicked: {
+                    syncCompleteDialog.close()
                 }
 
                 background: Rectangle {

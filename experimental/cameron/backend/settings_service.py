@@ -22,6 +22,8 @@ class Settings(BaseModel):
     shotgrid_url: Optional[str] = None
     shotgrid_api_key: Optional[str] = None
     shotgrid_script_name: Optional[str] = None
+    shotgrid_author_email: Optional[str] = None
+    prepend_session_header: Optional[bool] = None
 
     # Vexa
     vexa_api_key: Optional[str] = None
