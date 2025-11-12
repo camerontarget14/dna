@@ -2795,7 +2795,7 @@ ApplicationWindow {
             }
 
             Text {
-                text: "A Qt-based desktop application for managing dailies notes with AI assistance and collaboration features."
+                text: "A Qt-based desktop application from the Academy Software Foundation for managing dailies notes with AI assistance and meeting transcription."
                 font.pixelSize: 12
                 color: themeManager.textColor
                 wrapMode: Text.WordWrap
