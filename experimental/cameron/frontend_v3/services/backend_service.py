@@ -8,7 +8,13 @@ import requests
 from config import BACKEND_URL, CONNECTION_RETRY_ATTEMPTS, DEBUG_MODE, REQUEST_TIMEOUT
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
+from services.transcript_utils import (
+    format_transcript_for_display,
+    group_segments_by_speaker,
+    merge_segments_by_absolute_utc,
+)
 from services.vexa_service import VexaService
+from services.vexa_websocket_service import VexaWebSocketService
 
 
 class BackendService(QObject):
@@ -51,7 +57,9 @@ class BackendService(QObject):
     hasShotGridVersionsChanged = Signal()
 
     # Sync signals
-    syncCompleted = Signal(int, int, int, int, bool)  # synced, skipped, failed, attachments, statuses_updated
+    syncCompleted = Signal(
+        int, int, int, int, bool
+    )  # synced, skipped, failed, attachments, statuses_updated
 
     # Vexa/Meeting signals
     meetingStatusChanged = Signal()
@@ -83,12 +91,20 @@ class BackendService(QObject):
         self._vexa_api_key = ""
         self._vexa_api_url = "https://api.cloud.vexa.ai"
         self._vexa_service = None
+        self._vexa_websocket = None  # WebSocket service for real-time streaming
         self._meeting_active = False
         self._meeting_status = (
             "disconnected"  # disconnected, connecting, connected, error
         )
         self._current_meeting_id = ""
         self._transcription_timer = None
+
+        # WebSocket segment tracking
+        self._all_segments = []  # All segments received via WebSocket
+        self._mutable_segment_ids = set()  # IDs of segments that are still mutable
+        self._seen_segment_ids = {}  # Dict: segment_key -> text_length (to detect updates)
+        self._current_version_segments = []  # Segments captured for current version only
+        self._base_transcript = ""  # Transcript that existed when version was selected
 
         # Current version
         self._selected_version_id = None
@@ -279,7 +295,11 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
     @Property(str, notify=selectedVersionShotGridIdChanged)
     def selectedVersionShotGridId(self):
-        return str(self._selected_version_shotgrid_id) if self._selected_version_shotgrid_id else ""
+        return (
+            str(self._selected_version_shotgrid_id)
+            if self._selected_version_shotgrid_id
+            else ""
+        )
 
     @Property(str, notify=currentNotesChanged)
     def currentNotes(self):
@@ -431,12 +451,15 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             import time
 
             self._version_activation_time = time.time()
-            self._seen_segment_ids = set()  # Clear the set of seen segments
+            self._seen_segment_ids = {}  # Clear the dict of seen segments (timestamp -> length)
+            self._current_version_segments = []  # Clear segments list for new version
+            self._base_transcript = (
+                self._current_transcript
+            )  # Save existing transcript as base
 
-            # Mark all CURRENT segments in the meeting as "seen" (async, non-blocking)
+            # Mark all CURRENT segments in the meeting as "seen" immediately
             # so we only capture NEW segments that arrive after this point
-            # Using QTimer to make it async and not block the UI
-            QTimer.singleShot(0, self._mark_current_segments_as_seen)
+            self._mark_current_segments_as_seen()
 
             print(
                 f"  Reset transcript tracking - will only capture new segments from now on"
@@ -729,8 +752,8 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                 print(f"✓ Successfully joined meeting")
                 print(f"  Internal meeting ID: {self._current_meeting_id}")
 
-                # Start polling for transcription updates
-                self._start_transcription_polling()
+                # Start WebSocket streaming for transcription updates
+                self._start_transcription_websocket()
             else:
                 print(f"ERROR: Failed to join meeting")
                 self._meeting_status = "error"
@@ -762,8 +785,8 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             if result.get("success"):
                 print(f"✓ Successfully left meeting")
 
-                # Stop polling
-                self._stop_transcription_polling()
+                # Stop WebSocket streaming
+                self._stop_transcription_websocket()
 
                 self._meeting_active = False
                 self._meeting_status = "disconnected"
@@ -804,108 +827,272 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         except Exception as e:
             print(f"ERROR: Failed to update language: {e}")
 
-    def _start_transcription_polling(self):
-        """Start polling for transcription updates"""
-        if self._transcription_timer:
-            self._transcription_timer.stop()
+    def _start_transcription_websocket(self):
+        """Start WebSocket connection for real-time transcription streaming"""
+        if not self._current_meeting_id:
+            print("ERROR: No meeting ID for WebSocket connection")
+            return
 
-        self._transcription_timer = QTimer()
-        self._transcription_timer.timeout.connect(self._poll_transcription)
-        self._transcription_timer.start(
-            1000
-        )  # Poll every 1 second for real-time updates
+        # Parse meeting ID to get platform and native_meeting_id
+        parts = self._current_meeting_id.split("/")
+        if len(parts) < 2:
+            print("ERROR: Invalid meeting ID format for WebSocket")
+            return
 
-        print("Started transcription polling (every 1 second)")
+        platform = parts[0]
+        native_meeting_id = parts[1]
 
-        # Do initial fetch
-        self._poll_transcription()
+        print(f"\n=== Starting WebSocket Connection ===")
+        print(f"Platform: {platform}")
+        print(f"Native Meeting ID: {native_meeting_id}")
 
-    def _stop_transcription_polling(self):
-        """Stop polling for transcription updates"""
-        if self._transcription_timer:
-            self._transcription_timer.stop()
-            self._transcription_timer = None
-            print("Stopped transcription polling")
+        # Create WebSocket service if it doesn't exist
+        if not self._vexa_websocket:
+            self._vexa_websocket = VexaWebSocketService(
+                self._vexa_api_key, self._vexa_api_url
+            )
+
+            # Connect signals
+            self._vexa_websocket.connected.connect(self._on_websocket_connected)
+            self._vexa_websocket.disconnected.connect(self._on_websocket_disconnected)
+            self._vexa_websocket.error.connect(self._on_websocket_error)
+            self._vexa_websocket.transcriptMutableReceived.connect(
+                self._on_transcript_mutable
+            )
+            self._vexa_websocket.transcriptFinalizedReceived.connect(
+                self._on_transcript_finalized
+            )
+            self._vexa_websocket.transcriptInitialReceived.connect(
+                self._on_transcript_initial
+            )
+            self._vexa_websocket.meetingStatusChanged.connect(
+                self._on_meeting_status_changed
+            )
+
+        # Connect to WebSocket server
+        self._vexa_websocket.connect_to_server()
+
+        # Subscribe to meeting (will happen after connection is established)
+        QTimer.singleShot(
+            1000,
+            lambda: self._vexa_websocket.subscribe_to_meeting(
+                platform, native_meeting_id
+            ),
+        )
+
+    def _stop_transcription_websocket(self):
+        """Stop WebSocket connection"""
+        if self._vexa_websocket:
+            print("Stopping WebSocket connection")
+
+            # Unsubscribe from meeting if we have an ID
+            if self._current_meeting_id:
+                parts = self._current_meeting_id.split("/")
+                if len(parts) >= 2:
+                    self._vexa_websocket.unsubscribe_from_meeting(parts[0], parts[1])
+
+            # Disconnect from server
+            self._vexa_websocket.disconnect_from_server()
+
+        # Clear segment tracking (reset to dict for _seen_segment_ids)
+        self._all_segments = []
+        self._mutable_segment_ids = set()
+        self._seen_segment_ids = {}
+        self._current_version_segments = []
+        self._base_transcript = ""
 
     def _mark_current_segments_as_seen(self):
         """Mark all current meeting segments as seen (called when switching versions)"""
-        if not self._current_meeting_id or not self._vexa_service:
-            return
+        # Mark all segments in _all_segments as seen with their text length
+        # Use absolute_start_time for consistency with merge logic
+        print(f"  Marking {len(self._all_segments)} segments as seen...")
 
-        try:
-            transcription_data = self._vexa_service.get_transcription(
-                self._current_meeting_id
+        # Group by timestamp and keep only the longest text for each timestamp
+        # This handles cases where segments have same timestamp but different text
+        timestamp_to_segment = {}
+        for seg in self._all_segments:
+            segment_key = seg.get("absolute_start_time") or seg.get("timestamp", "")
+            if not segment_key:
+                continue
+
+            existing = timestamp_to_segment.get(segment_key)
+            if not existing or len(seg.get("text", "")) > len(existing.get("text", "")):
+                timestamp_to_segment[segment_key] = seg
+
+        # Now mark the longest version of each timestamp as seen
+        for segment_key, seg in timestamp_to_segment.items():
+            text_length = len(seg.get("text", ""))
+            self._seen_segment_ids[segment_key] = text_length
+            text_preview = seg.get("text", "")[:30]
+            print(
+                f"    ✓ Marked: {segment_key[-12:]} -> length {text_length} ('{text_preview}...')"
             )
 
-            segments = transcription_data.segments
-            if segments:
-                # Mark all existing segment IDs as seen
-                for seg in segments:
-                    segment_id = seg.get("id") or seg.get("timestamp", "")
-                    if segment_id:
-                        self._seen_segment_ids.add(segment_id)
+        print(
+            f"  Marked {len(self._seen_segment_ids)} segments as seen (from {len(self._all_segments)} total segments)"
+        )
 
-                print(f"  Marked {len(segments)} existing segments as seen")
+    # ===== WebSocket Event Handlers =====
 
-        except Exception as e:
-            # Not critical if this fails
-            pass
+    def _on_websocket_connected(self):
+        """Handle WebSocket connection established"""
+        print("✅ WebSocket connected - ready to receive transcripts")
+        self._meeting_status = "connected"
+        self.meetingStatusChanged.emit()
 
-    def _poll_transcription(self):
-        """Poll for transcription updates and route to active version"""
-        if not self._current_meeting_id or not self._vexa_service:
-            return
+    def _on_websocket_disconnected(self):
+        """Handle WebSocket disconnection"""
+        print("❌ WebSocket disconnected")
+        if self._meeting_active:
+            self._meeting_status = "error"
+            self.meetingStatusChanged.emit()
 
-        # Only route transcripts if a version is selected
+    def _on_websocket_error(self, error_msg: str):
+        """Handle WebSocket error"""
+        print(f"🔴 WebSocket error: {error_msg}")
+        self._meeting_status = "error"
+        self.meetingStatusChanged.emit()
+
+    def _on_transcript_initial(self, segments: list):
+        """Handle initial transcript dump (all existing segments)"""
+        print(f"🟣 Received initial transcript: {len(segments)} segments")
+        # Merge with existing segments
+        self._all_segments = merge_segments_by_absolute_utc(
+            self._all_segments, segments
+        )
+        # Mark all as mutable initially
+        for seg in segments:
+            seg_id = seg.get("id", "")
+            if seg_id:
+                self._mutable_segment_ids.add(seg_id)
+        # Update UI
+        self._update_transcript_display()
+
+    def _on_transcript_mutable(self, segments: list):
+        """Handle mutable (in-progress) transcript segments"""
+        print(f"🟢 Received mutable transcript: {len(segments)} segments")
+
+        # Debug: print segment details to see what's coming through
+        for seg in segments:
+            text = seg.get("text", "")
+            speaker = seg.get("speaker", "Unknown")
+            abs_time = seg.get("absolute_start_time", "")
+            print(
+                f"  📝 {speaker}: '{text}' [abs_time: {abs_time[-12:] if abs_time else 'N/A'}]"
+            )
+
+        # Merge with existing segments (deduplicates by absolute_start_time)
+        self._all_segments = merge_segments_by_absolute_utc(
+            self._all_segments, segments
+        )
+        # Mark these segments as mutable
+        for seg in segments:
+            seg_id = seg.get("id", "")
+            if seg_id:
+                self._mutable_segment_ids.add(seg_id)
+        # Update UI
+        self._update_transcript_display()
+
+    def _on_transcript_finalized(self, segments: list):
+        """Handle finalized (completed) transcript segments"""
+        print(f"🔵 Received finalized transcript: {len(segments)} segments")
+        # Merge with existing segments
+        self._all_segments = merge_segments_by_absolute_utc(
+            self._all_segments, segments
+        )
+        # Remove these segments from mutable set (they're now finalized)
+        for seg in segments:
+            seg_id = seg.get("id", "")
+            if seg_id:
+                self._mutable_segment_ids.discard(seg_id)
+        # Update UI
+        self._update_transcript_display()
+
+    def _on_meeting_status_changed(self, status: str):
+        """Handle meeting status change"""
+        print(f"🟡 Meeting status changed: {status}")
+        # Map Vexa status to our status
+        if status == "active":
+            self._meeting_status = "connected"
+        elif status in ["completed", "stopped"]:
+            self._meeting_status = "disconnected"
+            self._meeting_active = False
+        elif status == "error":
+            self._meeting_status = "error"
+
+        self.meetingStatusChanged.emit()
+
+    def _update_transcript_display(self):
+        """Update transcript display from all segments"""
+        # Only update if a version is selected
         if not self._selected_version_id or self._version_activation_time is None:
             return
 
-        try:
-            transcription_data = self._vexa_service.get_transcription(
-                self._current_meeting_id
+        # Filter to segments that are NEW or have been UPDATED (longer text)
+        # Use absolute_start_time as the key (same as merge logic)
+        new_or_updated_segments = []
+        for seg in self._all_segments:
+            segment_key = seg.get("absolute_start_time") or seg.get("timestamp", "")
+            if not segment_key:
+                continue
+
+            text = seg.get("text", "")
+            text_length = len(text)
+
+            # Check if this is new or has been updated
+            if segment_key not in self._seen_segment_ids:
+                # New segment
+                new_or_updated_segments.append(seg)
+                self._seen_segment_ids[segment_key] = text_length
+            elif self._seen_segment_ids[segment_key] < text_length:
+                # Updated segment with more text (mutable becoming more complete)
+                new_or_updated_segments.append(seg)
+                self._seen_segment_ids[segment_key] = text_length
+
+        if new_or_updated_segments:
+            # Update or add segments to current version's list
+            for new_seg in new_or_updated_segments:
+                segment_key = new_seg.get("absolute_start_time") or new_seg.get(
+                    "timestamp", ""
+                )
+
+                # Find and replace existing segment with same timestamp
+                replaced = False
+                for i, existing_seg in enumerate(self._current_version_segments):
+                    existing_key = existing_seg.get(
+                        "absolute_start_time"
+                    ) or existing_seg.get("timestamp", "")
+                    if existing_key == segment_key:
+                        self._current_version_segments[i] = (
+                            new_seg  # Replace with updated version
+                        )
+                        replaced = True
+                        break
+
+                if not replaced:
+                    self._current_version_segments.append(new_seg)  # Add new segment
+
+            # Rebuild transcript from current version's segments (segments from this session)
+            # This ensures each segment appears only once with its latest text
+            speaker_groups = group_segments_by_speaker(self._current_version_segments)
+            new_transcript_text = format_transcript_for_display(speaker_groups)
+
+            # Combine base transcript (what existed before) with new segments
+            if self._base_transcript:
+                self._current_transcript = (
+                    self._base_transcript + "\n" + new_transcript_text
+                )
+            else:
+                self._current_transcript = new_transcript_text
+
+            self.currentTranscriptChanged.emit()
+
+            # Save the updated transcript to the currently active version in backend
+            self._save_transcript_to_active_version(self._current_transcript)
+
+            print(
+                f"Transcript updated for version '{self._selected_version_name}': {len(new_or_updated_segments)} new/updated segments"
             )
-
-            # Get all segments from the meeting
-            segments = transcription_data.segments
-            if not segments:
-                return
-
-            # Filter to only NEW segments we haven't seen yet (by segment ID)
-            new_segments = []
-            for seg in segments:
-                segment_id = seg.get("id") or seg.get("timestamp", "")
-                # Only process segments we haven't seen before
-                if segment_id and segment_id not in self._seen_segment_ids:
-                    new_segments.append(seg)
-                    self._seen_segment_ids.add(segment_id)  # Mark as seen
-
-            if new_segments:
-                # Append only NEW segments to the current version's transcript
-                new_text = "\n".join(
-                    [
-                        f"{seg.get('speaker', 'Unknown')}: {seg.get('text', '')}"
-                        for seg in new_segments
-                    ]
-                )
-
-                # Append to existing transcript (don't replace)
-                if self._current_transcript:
-                    self._current_transcript += "\n" + new_text
-                else:
-                    self._current_transcript = new_text
-
-                self.currentTranscriptChanged.emit()
-
-                # Save the updated transcript to the currently active version in backend
-                self._save_transcript_to_active_version(self._current_transcript)
-
-                print(
-                    f"Transcript updated for version '{self._selected_version_name}': +{len(new_segments)} new segments"
-                )
-
-        except Exception as e:
-            # Don't spam errors, transcription might not be ready yet
-            pass
 
     def _save_transcript_to_active_version(self, transcript_text):
         """Save transcript to the currently active version"""
@@ -1260,7 +1447,9 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
             if data.get("status") == "success":
                 items = data.get("versions", [])
-                print(f"✓ Loaded {len(items)} versions from ShotGrid playlist with statuses")
+                print(
+                    f"✓ Loaded {len(items)} versions from ShotGrid playlist with statuses"
+                )
 
                 # Create versions via backend API
                 # Items are dicts with 'id' (ShotGrid version ID), 'name' (display name), and 'status'
@@ -1291,7 +1480,9 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
                         if create_response.status_code == 200:
                             status_info = f" [{status}]" if status else ""
-                            print(f"  ✓ Created version: {display_name}{status_info} (SG ID: {shotgrid_version_id})")
+                            print(
+                                f"  ✓ Created version: {display_name}{status_info} (SG ID: {shotgrid_version_id})"
+                            )
                         else:
                             print(
                                 f"  ✗ Failed to create version: {display_name} - {create_response.text}"
@@ -1508,7 +1699,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             version_item = {
                 "version_id": vid,
                 "shotgrid_version_id": sg_version_id,
-                "notes": user_notes.strip()
+                "notes": user_notes.strip(),
             }
 
             # Include status if enabled
@@ -1517,14 +1708,18 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
             # Include attachments if present
             if attachments:
-                attachment_paths = [att.get("filepath") for att in attachments if att.get("filepath")]
+                attachment_paths = [
+                    att.get("filepath") for att in attachments if att.get("filepath")
+                ]
                 if attachment_paths:
                     version_item["attachments"] = attachment_paths
 
             versions_to_sync.append(version_item)
 
         if not versions_to_sync:
-            print(f"⚠ No versions with notes to sync ({skipped_count} versions have no notes)")
+            print(
+                f"⚠ No versions with notes to sync ({skipped_count} versions have no notes)"
+            )
             return False
 
         print(f"Found {len(versions_to_sync)} version(s) with notes to sync")
@@ -1543,20 +1738,20 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         # Build batch sync request
         sync_data = {
             "versions": versions_to_sync,
-            "author_email": self._shotgrid_author_email if self._shotgrid_author_email else None,
+            "author_email": self._shotgrid_author_email
+            if self._shotgrid_author_email
+            else None,
             "prepend_session_header": self._prepend_session_header,
             "playlist_name": playlist_name,
             "session_date": None,  # Will use current date
-            "update_status": self._include_statuses
+            "update_status": self._include_statuses,
         }
 
         try:
             # Make API call to batch sync
             print(f"Syncing {len(versions_to_sync)} version(s) to ShotGrid...")
             response = self._make_request(
-                "POST",
-                "/shotgrid/batch-sync-notes",
-                json=sync_data
+                "POST", "/shotgrid/batch-sync-notes", json=sync_data
             )
 
             data = response.json()
@@ -1576,17 +1771,23 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
                 # Print details
                 for item in synced:
-                    print(f"    ✓ {item.get('version_code')} → Note ID: {item.get('note_id')}")
+                    print(
+                        f"    ✓ {item.get('version_code')} → Note ID: {item.get('note_id')}"
+                    )
                 for item in skipped:
                     print(f"    ⊘ {item.get('version_code')} (duplicate)")
                 for item in failed:
                     print(f"    ✗ {item.get('version_id')}: {item.get('error')}")
 
                 # Calculate total attachments uploaded
-                total_attachments = sum(item.get('attachments_uploaded', 0) for item in synced)
+                total_attachments = sum(
+                    item.get("attachments_uploaded", 0) for item in synced
+                )
 
                 # Check if any statuses were updated
-                any_status_updated = any(item.get('status_updated', False) for item in synced)
+                any_status_updated = any(
+                    item.get("status_updated", False) for item in synced
+                )
 
                 # Emit signal to show completion dialog
                 self.syncCompleted.emit(
@@ -1594,7 +1795,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                     len(skipped),
                     len(failed),
                     total_attachments,
-                    any_status_updated
+                    any_status_updated,
                 )
 
                 return len(synced) > 0
@@ -1605,6 +1806,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         except Exception as e:
             print(f"ERROR: Failed to batch sync notes to ShotGrid: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 
