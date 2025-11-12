@@ -1002,6 +1002,19 @@ ApplicationWindow {
                                 }
                             }
 
+                            Text {
+                                text: {
+                                    if (backend.hasShotGridVersions && backend.selectedVersionShotGridId && backend.selectedVersionShotGridId !== "") {
+                                        return "Version ID: " + backend.selectedVersionShotGridId
+                                    } else if (!backend.hasShotGridVersions && backend.selectedVersionName) {
+                                        return "Version ID: Not available"
+                                    }
+                                    return ""
+                                }
+                                font.pixelSize: 12
+                                color: themeManager.mutedTextColor
+                                visible: backend.selectedVersionName !== ""
+                            }
                         }
                     }
 

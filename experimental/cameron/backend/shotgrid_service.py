@@ -293,7 +293,13 @@ def get_version_statuses(project_id=None):
 
 
 def get_playlist_versions_with_statuses(playlist_id):
-    """Fetch version details including statuses from a playlist."""
+    """Fetch version details including statuses from a playlist.
+
+    Returns a list of dicts with:
+    - id: ShotGrid version ID (integer)
+    - name: Display name (just the version name, not shot/version format)
+    - status: Version status code
+    """
     sg = Shotgun(get_shotgrid_url(), get_script_name(), get_api_key())
     fields = ["versions"]
     playlist = sg.find_one("Playlist", [["id", "is", playlist_id]], fields)
@@ -307,23 +313,23 @@ def get_playlist_versions_with_statuses(playlist_id):
 
     version_data = []
     for v in versions:
-        shot_name = extract_shot_name(v.get(SHOTGRID_SHOT_FIELD))
         version_name = v.get(SHOTGRID_VERSION_FIELD, "")
+        version_id = v.get("id")
         status = v.get("sg_status_list", "")
 
-        if version_name or shot_name:
+        if version_name and version_id:
+            display_name = version_name
+
+            # Anonymize if in demo mode
+            if get_demo_mode():
+                display_name = anonymize_version_name(version_name)
+
             version_info = {
-                "name": f"{shot_name}/{version_name}",
+                "id": version_id,
+                "name": display_name,
                 "status": status
             }
             version_data.append(version_info)
-
-    # Anonymize if needed
-    if get_demo_mode():
-        for v in version_data:
-            if "/" in v["name"]:
-                parts = v["name"].split("/", 1)
-                v["name"] = f"{anonymize_shot_name(parts[0])}/{anonymize_version_name(parts[1])}"
 
     return version_data
 

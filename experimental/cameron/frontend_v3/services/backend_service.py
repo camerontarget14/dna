@@ -19,6 +19,7 @@ class BackendService(QObject):
     meetingIdChanged = Signal()
     selectedVersionIdChanged = Signal()
     selectedVersionNameChanged = Signal()
+    selectedVersionShotGridIdChanged = Signal()
     currentNotesChanged = Signal()
     currentAiNotesChanged = Signal()
     currentTranscriptChanged = Signal()
@@ -92,6 +93,7 @@ class BackendService(QObject):
         # Current version
         self._selected_version_id = None
         self._selected_version_name = ""
+        self._selected_version_shotgrid_id = None
 
         # Notes and transcript
         self._current_notes = ""
@@ -275,6 +277,10 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
     def selectedVersionName(self):
         return self._selected_version_name
 
+    @Property(str, notify=selectedVersionShotGridIdChanged)
+    def selectedVersionShotGridId(self):
+        return str(self._selected_version_shotgrid_id) if self._selected_version_shotgrid_id else ""
+
     @Property(str, notify=currentNotesChanged)
     def currentNotes(self):
         return self._current_notes
@@ -399,6 +405,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             # Update selected version
             self._selected_version_id = version.get("id", "")
             self._selected_version_name = version.get("name", "")
+            self._selected_version_shotgrid_id = version.get("shotgrid_version_id")
 
             # Load notes and transcript
             self._current_notes = version.get("user_notes", "")
@@ -438,6 +445,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             # Emit signals
             self.selectedVersionIdChanged.emit()
             self.selectedVersionNameChanged.emit()
+            self.selectedVersionShotGridIdChanged.emit()
             self.currentNotesChanged.emit()
             self.currentAiNotesChanged.emit()
             self.currentTranscriptChanged.emit()
@@ -626,6 +634,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             # Clear local state
             self._selected_version_id = None
             self._selected_version_name = ""
+            self._selected_version_shotgrid_id = None
             self._current_notes = ""
             self._current_ai_notes = ""
             self._current_transcript = ""
@@ -636,6 +645,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             # Emit signals to update UI
             self.selectedVersionIdChanged.emit()
             self.selectedVersionNameChanged.emit()
+            self.selectedVersionShotGridIdChanged.emit()
             self.currentNotesChanged.emit()
             self.currentAiNotesChanged.emit()
             self.currentTranscriptChanged.emit()
@@ -1233,7 +1243,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
     @Slot()
     def loadShotgridPlaylist(self):
-        """Load versions from the selected ShotGrid playlist"""
+        """Load versions from the selected ShotGrid playlist with statuses"""
         if not hasattr(self, "_selected_playlist_id") or not self._selected_playlist_id:
             print("ERROR: No playlist selected")
             return
@@ -1242,27 +1252,29 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         print(f"Loading versions from ShotGrid playlist ID: {playlist_id}")
 
         try:
+            # Always use the endpoint that includes statuses
             response = self._make_request(
-                "GET", f"/shotgrid/playlist-items/{playlist_id}"
+                "GET", f"/shotgrid/playlist-versions-with-statuses/{playlist_id}"
             )
             data = response.json()
 
             if data.get("status") == "success":
-                items = data.get("items", [])
-                print(f"✓ Loaded {len(items)} items from ShotGrid playlist")
+                items = data.get("versions", [])
+                print(f"✓ Loaded {len(items)} versions from ShotGrid playlist with statuses")
 
                 # Create versions via backend API
-                # Items are now dicts with 'id' (ShotGrid version ID) and 'name' (display name)
+                # Items are dicts with 'id' (ShotGrid version ID), 'name' (display name), and 'status'
                 for idx, item in enumerate(items):
                     # Generate internal version ID
                     internal_id = f"sg_{idx + 1}"
 
-                    # Extract ShotGrid version ID and display name
+                    # Extract ShotGrid version ID, display name, and status
                     shotgrid_version_id = item.get("id")
                     display_name = item.get("name")
+                    status = item.get("status", "")
 
                     try:
-                        # Create version via backend
+                        # Create version via backend with status
                         create_response = self._make_request(
                             "POST",
                             "/versions",
@@ -1273,11 +1285,13 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                                 "user_notes": "",
                                 "ai_notes": "",
                                 "transcript": "",
+                                "status": status,
                             },
                         )
 
                         if create_response.status_code == 200:
-                            print(f"  ✓ Created version: {display_name} (SG ID: {shotgrid_version_id})")
+                            status_info = f" [{status}]" if status else ""
+                            print(f"  ✓ Created version: {display_name}{status_info} (SG ID: {shotgrid_version_id})")
                         else:
                             print(
                                 f"  ✗ Failed to create version: {display_name} - {create_response.text}"
@@ -1293,12 +1307,8 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                 # Emit signal to reload versions
                 self.versionsLoaded.emit()
 
-                # If includeStatuses is enabled, load statuses for these versions
-                if self._include_statuses:
-                    self.loadPlaylistVersionsWithStatuses(playlist_id)
-
             else:
-                print(f"ERROR: Failed to load playlist items: {data.get('message')}")
+                print(f"ERROR: Failed to load playlist versions: {data.get('message')}")
 
         except Exception as e:
             print(f"ERROR: Failed to load ShotGrid playlist: {e}")
