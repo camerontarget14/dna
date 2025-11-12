@@ -904,61 +904,75 @@ ApplicationWindow {
                         Layout.fillWidth: true
                     }
 
-                    ListView {
-                        id: versionListView
+                    Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
 
-                        model: versionModel
-                        spacing: 8
-                        clip: true
-                        currentIndex: 0
+                        ListView {
+                            id: versionListView
+                            anchors.fill: parent
 
-                        Component.onCompleted: {
-                            if (versionModel.rowCount() > 0) {
-                                currentIndex = 0
-                            }
-                        }
+                            model: versionModel
+                            spacing: 8
+                            clip: true
+                            currentIndex: 0
 
-                        Connections {
-                            target: backend
-                            function onVersionsLoaded() {
-                                if (versionListView.count > 0) {
-                                    versionListView.currentIndex = 0
+                            Component.onCompleted: {
+                                if (versionModel.rowCount() > 0) {
+                                    currentIndex = 0
                                 }
                             }
+
+                            Connections {
+                                target: backend
+                                function onVersionsLoaded() {
+                                    if (versionListView.count > 0) {
+                                        versionListView.currentIndex = 0
+                                    }
+                                }
+                            }
+
+                            delegate: ItemDelegate {
+                                width: versionListView.width - 16  // Reserve space for scrollbar
+
+                                background: Rectangle {
+                                    color: versionListView.currentIndex === index ? themeManager.accentColor : "#3a3a3a"
+                                    radius: 6
+                                    border.color: "#505050"
+                                    border.width: 1
+                                }
+
+                                contentItem: Text {
+                                    text: model.description || "Version " + model.versionId
+                                    color: themeManager.textColor
+                                    font.pixelSize: 14
+                                    wrapMode: Text.WordWrap
+                                    padding: 0
+                                    leftPadding: 10
+                                    rightPadding: 12
+                                    topPadding: 2
+                                    bottomPadding: 2
+                                }
+
+                                onClicked: {
+                                    versionListView.currentIndex = index
+                                    backend.selectVersion(model.versionId)
+                                }
+                            }
+
+                            ScrollBar.vertical: ScrollBar {
+                                policy: ScrollBar.AsNeeded
+                            }
                         }
 
-                        delegate: ItemDelegate {
-                            width: versionListView.width - 16  // Reserve space for scrollbar
-
-                            background: Rectangle {
-                                color: versionListView.currentIndex === index ? themeManager.accentColor : "#3a3a3a"
-                                radius: 6
-                                border.color: "#505050"
-                                border.width: 1
-                            }
-
-                            contentItem: Text {
-                                text: model.description || "Version " + model.versionId
-                                color: themeManager.textColor
-                                font.pixelSize: 14
-                                wrapMode: Text.WordWrap
-                                padding: 0
-                                leftPadding: 10
-                                rightPadding: 12
-                                topPadding: 2
-                                bottomPadding: 2
-                            }
-
-                            onClicked: {
-                                versionListView.currentIndex = index
-                                backend.selectVersion(model.versionId)
-                            }
-                        }
-
-                        ScrollBar.vertical: ScrollBar {
-                            policy: ScrollBar.AsNeeded
+                        // Placeholder text when no versions are loaded
+                        Text {
+                            anchors.centerIn: parent
+                            text: "Load a playlist to get started"
+                            font.pixelSize: 14
+                            color: themeManager.mutedTextColor
+                            visible: versionListView.count === 0
+                            horizontalAlignment: Text.AlignHCenter
                         }
                     }
                 }
