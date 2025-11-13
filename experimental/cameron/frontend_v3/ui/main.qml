@@ -825,6 +825,30 @@ ApplicationWindow {
                                 }
 
                                 Button {
+                                    text: "Add Version"
+                                    Layout.fillWidth: true
+
+                                    onClicked: {
+                                        addVersionDialog.open()
+                                    }
+
+                                    background: Rectangle {
+                                        color: "transparent"
+                                        border.color: parent.hovered ? themeManager.accentHover : themeManager.accentColor
+                                        border.width: 1
+                                        radius: 6
+                                    }
+
+                                    contentItem: Text {
+                                        text: parent.text
+                                        color: parent.hovered ? themeManager.accentHover : themeManager.accentColor
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                        font.pixelSize: 12
+                                    }
+                                }
+
+                                Button {
                                     text: "Import CSV"
                                     Layout.fillWidth: true
 
@@ -3244,6 +3268,103 @@ ApplicationWindow {
                     font.pixelSize: 14
                 }
             }
+        }
+    }
+
+    // Add Version Dialog
+    Dialog {
+        id: addVersionDialog
+        modal: true
+        anchors.centerIn: parent
+        width: 400
+        title: "Add Version"
+
+        background: Rectangle {
+            color: themeManager.cardBackground
+            border.color: themeManager.borderColor
+            border.width: 1
+            radius: 8
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 15
+
+            Text {
+                text: "Enter version name:"
+                font.pixelSize: 12
+                color: themeManager.textColor
+            }
+
+            TextField {
+                id: versionNameInput
+                Layout.fillWidth: true
+                placeholderText: "e.g., SH010_ANIM_v001"
+                color: themeManager.textColor
+                background: Rectangle {
+                    color: themeManager.cardBackground
+                    border.color: themeManager.borderColor
+                    border.width: 1
+                    radius: 4
+                }
+
+                Keys.onReturnPressed: {
+                    if (text.trim() !== "") {
+                        backend.addVersion(text)
+                        addVersionDialog.close()
+                        text = ""
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: 10
+
+                Button {
+                    text: "Cancel"
+                    background: Rectangle {
+                        color: parent.hovered ? "#555555" : "#444444"
+                        radius: 4
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: themeManager.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: {
+                        addVersionDialog.close()
+                        versionNameInput.text = ""
+                    }
+                }
+
+                Button {
+                    text: "Add"
+                    enabled: versionNameInput.text.trim() !== ""
+                    background: Rectangle {
+                        color: parent.enabled ? (parent.hovered ? themeManager.accentHover : themeManager.accentColor) : "#3a3a3a"
+                        radius: 4
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.enabled ? "white" : "#555555"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: {
+                        if (versionNameInput.text.trim() !== "") {
+                            backend.addVersion(versionNameInput.text)
+                            addVersionDialog.close()
+                            versionNameInput.text = ""
+                        }
+                    }
+                }
+            }
+        }
+
+        onOpened: {
+            versionNameInput.forceActiveFocus()
         }
     }
 

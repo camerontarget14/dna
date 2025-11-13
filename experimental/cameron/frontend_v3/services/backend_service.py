@@ -1136,6 +1136,42 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
     # ===== CSV Import/Export =====
 
     @Slot(str)
+    def addVersion(self, version_name):
+        """Add a new version with the given name"""
+        if not version_name or not version_name.strip():
+            print("ERROR: Version name is empty")
+            return
+
+        version_name = version_name.strip()
+        print(f"Adding new version: {version_name}")
+
+        try:
+            new_version = {
+                "id": version_name,  # Use name as ID for CSV versions
+                "name": version_name,
+                "user_notes": "",
+                "ai_notes": "",
+                "transcript": "",
+                "status": "",
+            }
+            response = self._make_request("POST", "/versions", json=new_version)
+
+            if response.status_code == 200:
+                print(f"✓ Added version '{version_name}'")
+
+                # CSV versions are not from ShotGrid
+                self._has_shotgrid_versions = False
+                self.hasShotGridVersionsChanged.emit()
+
+                # Emit signal to reload versions
+                self.versionsLoaded.emit()
+            else:
+                print(f"ERROR: Failed to add version: {response.text}")
+
+        except Exception as e:
+            print(f"ERROR: Failed to add version: {e}")
+
+    @Slot(str)
     def importCSV(self, file_url):
         """Import versions from CSV via backend API"""
         # Convert file URL to path
