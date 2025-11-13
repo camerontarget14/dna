@@ -43,6 +43,8 @@ class BackendService(QObject):
     # ShotGrid
     shotgridProjectsChanged = Signal()
     shotgridPlaylistsChanged = Signal()
+    selectedPlaylistIdChanged = Signal()
+    lastLoadedPlaylistIdChanged = Signal()
     shotgridUrlChanged = Signal()
     shotgridApiKeyChanged = Signal()
     shotgridScriptNameChanged = Signal()
@@ -150,6 +152,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         self._shotgrid_playlists_data = []
         self._selected_project_id = None
         self._selected_playlist_id = None
+        self._last_loaded_playlist_id = None  # Track which playlist was last loaded
         self._has_shotgrid_versions = False
         self._shotgrid_url = ""
         self._shotgrid_api_key = ""
@@ -759,13 +762,14 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             if result.get("success"):
                 self._current_meeting_id = result.get("meeting_id", self._meeting_id)
                 self._meeting_active = True
-                self._meeting_status = "connected"
-                self.meetingStatusChanged.emit()
+                # Don't set status to connected yet - it will be updated by WebSocket status messages
+                # Status progression: connecting -> joining -> connected
 
-                print(f"✓ Successfully joined meeting")
+                print(f"✓ Successfully started bot")
                 print(f"  Internal meeting ID: {self._current_meeting_id}")
 
                 # Start WebSocket streaming for transcription updates
+                # Status will be updated when we receive meeting.status messages
                 self._start_transcription_websocket()
             else:
                 print(f"ERROR: Failed to join meeting")
@@ -950,8 +954,9 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
     def _on_websocket_connected(self):
         """Handle WebSocket connection established"""
         print("✅ WebSocket connected - ready to receive transcripts")
-        self._meeting_status = "connected"
-        self.meetingStatusChanged.emit()
+        # Don't set status to connected here - wait for meeting.status messages
+        # The status will be updated by _on_meeting_status_changed when we get
+        # the actual meeting status (joining -> awaiting_admission -> active)
 
     def _on_websocket_disconnected(self):
         """Handle WebSocket disconnection"""
@@ -1027,6 +1032,8 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         # Map Vexa status to our status
         if status == "active":
             self._meeting_status = "connected"
+        elif status in ["joining", "awaiting_admission"]:
+            self._meeting_status = "joining"
         elif status in ["completed", "stopped"]:
             self._meeting_status = "disconnected"
             self._meeting_active = False
@@ -1234,6 +1241,14 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
     @Property(list, notify=shotgridPlaylistsChanged)
     def shotgridPlaylists(self):
         return self._shotgrid_playlists
+
+    @Property(int, notify=selectedPlaylistIdChanged)
+    def selectedPlaylistId(self):
+        return self._selected_playlist_id if self._selected_playlist_id else -1
+
+    @Property(int, notify=lastLoadedPlaylistIdChanged)
+    def lastLoadedPlaylistId(self):
+        return self._last_loaded_playlist_id if self._last_loaded_playlist_id else -1
 
     @Property(bool, notify=hasShotGridVersionsChanged)
     def hasShotGridVersions(self):
@@ -1510,6 +1525,10 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                 self.shotgridPlaylistsChanged.emit()
 
                 print(f"✓ Loaded {len(playlists)} ShotGrid playlists")
+
+                # Auto-select first playlist if available
+                if len(playlists) > 0:
+                    self.selectShotgridPlaylist(0)
             else:
                 print(f"ERROR: Failed to load playlists: {data.get('message')}")
                 self._shotgrid_playlists = []
@@ -1534,18 +1553,74 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             return
 
         playlist = self._shotgrid_playlists_data[index]
+        old_id = getattr(self, "_selected_playlist_id", None)
         self._selected_playlist_id = playlist["id"]
-        print(f"Selected ShotGrid playlist: {playlist['code']} (ID: {playlist['id']})")
+        self.selectedPlaylistIdChanged.emit()
+        print(
+            f"Selected ShotGrid playlist: {playlist['code']} (ID: {playlist['id']}) [was: {old_id}]"
+        )
 
     @Slot()
     def loadShotgridPlaylist(self):
         """Load versions from the selected ShotGrid playlist with statuses"""
-        if not hasattr(self, "_selected_playlist_id") or not self._selected_playlist_id:
+        playlist_id = getattr(self, "_selected_playlist_id", None)
+        print(
+            f"DEBUG: loadShotgridPlaylist() called, _selected_playlist_id = {playlist_id}"
+        )
+
+        if not playlist_id:
             print("ERROR: No playlist selected")
             return
 
-        playlist_id = self._selected_playlist_id
         print(f"Loading versions from ShotGrid playlist ID: {playlist_id}")
+
+        # Only clear versions if loading a different playlist
+        is_same_playlist = self._last_loaded_playlist_id == playlist_id
+        if not is_same_playlist:
+            print(
+                f"  Loading different playlist (was: {self._last_loaded_playlist_id}), clearing existing versions"
+            )
+            try:
+                self._make_request("DELETE", "/versions")
+                print("  Cleared existing versions")
+            except Exception as e:
+                print(f"  Warning: Could not clear versions: {e}")
+        else:
+            print(f"  Reloading same playlist, will add only new versions")
+
+        # Get existing versions if reloading same playlist
+        existing_versions_map = {}  # Maps ShotGrid ID -> internal version data
+        if is_same_playlist:
+            try:
+                versions_response = self._make_request("GET", "/versions")
+                if versions_response.status_code == 200:
+                    response_data = versions_response.json()
+
+                    # Handle both dict (with 'versions' key) and list responses
+                    versions_list = []
+                    if isinstance(response_data, dict):
+                        # Try common keys for version lists
+                        versions_list = response_data.get(
+                            "versions", response_data.get("data", [])
+                        )
+                    elif isinstance(response_data, list):
+                        versions_list = response_data
+
+                    # Process versions
+                    for version in versions_list:
+                        if isinstance(version, dict):
+                            sg_id = version.get("shotgrid_version_id")
+                            if sg_id:
+                                existing_versions_map[sg_id] = version
+
+                    print(
+                        f"  Found {len(existing_versions_map)} existing versions with ShotGrid IDs"
+                    )
+            except Exception as e:
+                print(f"  Warning: Could not get existing versions: {e}")
+                import traceback
+
+                traceback.print_exc()
 
         try:
             # Always use the endpoint that includes statuses
@@ -1562,14 +1637,29 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
                 # Create versions via backend API
                 # Items are dicts with 'id' (ShotGrid version ID), 'name' (display name), and 'status'
-                for idx, item in enumerate(items):
-                    # Generate internal version ID
-                    internal_id = f"sg_{idx + 1}"
+                added_count = 0
+                skipped_count = 0
+                playlist_sg_ids = set()  # Track which ShotGrid IDs are in the playlist
 
+                for idx, item in enumerate(items):
                     # Extract ShotGrid version ID, display name, and status
                     shotgrid_version_id = item.get("id")
                     display_name = item.get("name")
                     status = item.get("status", "")
+
+                    # Track this ShotGrid ID
+                    playlist_sg_ids.add(shotgrid_version_id)
+
+                    # Skip if this version already exists (when reloading same playlist)
+                    if (
+                        is_same_playlist
+                        and shotgrid_version_id in existing_versions_map
+                    ):
+                        skipped_count += 1
+                        continue
+
+                    # Generate internal version ID
+                    internal_id = f"sg_{idx + 1}"
 
                     try:
                         # Create version via backend with status
@@ -1592,6 +1682,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                             print(
                                 f"  ✓ Created version: {display_name}{status_info} (SG ID: {shotgrid_version_id})"
                             )
+                            added_count += 1
                         else:
                             print(
                                 f"  ✗ Failed to create version: {display_name} - {create_response.text}"
@@ -1599,6 +1690,42 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
 
                     except Exception as e:
                         print(f"  ✗ Error creating version {display_name}: {e}")
+
+                # Delete versions that are no longer in the playlist (when reloading same playlist)
+                deleted_count = 0
+                if is_same_playlist:
+                    for sg_id, version_data in existing_versions_map.items():
+                        if sg_id not in playlist_sg_ids:
+                            # This version was removed from the ShotGrid playlist
+                            internal_id = version_data.get("id")
+                            version_name = version_data.get("name", "Unknown")
+                            try:
+                                delete_response = self._make_request(
+                                    "DELETE", f"/versions/{internal_id}"
+                                )
+                                if delete_response.status_code == 200:
+                                    print(
+                                        f"  ✓ Deleted removed version: {version_name} (SG ID: {sg_id})"
+                                    )
+                                    deleted_count += 1
+                                else:
+                                    print(
+                                        f"  ✗ Failed to delete version: {version_name}"
+                                    )
+                            except Exception as e:
+                                print(f"  ✗ Error deleting version {version_name}: {e}")
+
+                # Print summary
+                if is_same_playlist:
+                    print(
+                        f"  Summary: Added {added_count} new versions, skipped {skipped_count} existing versions, deleted {deleted_count} removed versions"
+                    )
+                else:
+                    print(f"  Summary: Added {added_count} versions")
+
+                # Update last loaded playlist ID
+                self._last_loaded_playlist_id = playlist_id
+                self.lastLoadedPlaylistIdChanged.emit()
 
                 # Set flag that ShotGrid versions are loaded
                 self._has_shotgrid_versions = True

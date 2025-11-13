@@ -382,14 +382,16 @@ ApplicationWindow {
                         // Status indicator
                         Text {
                             text: {
-                                if (backend.meetingStatus === "connecting") return "⏳ Connecting..."
-                                if (backend.meetingStatus === "connected") return "✓ Connected"
-                                if (backend.meetingStatus === "error") return "✗ Error"
+                                if (backend.meetingStatus === "connecting") return "● Connecting..."
+                                if (backend.meetingStatus === "joining") return "● Joining..."
+                                if (backend.meetingStatus === "connected") return "● Connected"
+                                if (backend.meetingStatus === "error") return "● Error"
                                 return "○ Disconnected"
                             }
                             font.pixelSize: 12
                             color: {
                                 if (backend.meetingStatus === "connecting") return "#fbc02d"
+                                if (backend.meetingStatus === "joining") return "#fbc02d"
                                 if (backend.meetingStatus === "connected") return "#388e3c"
                                 if (backend.meetingStatus === "error") return "#d32f2f"
                                 return themeManager.mutedTextColor
@@ -401,7 +403,7 @@ ApplicationWindow {
                             text: backend.meetingActive ? "Leave Meeting" : "Join Meeting"
                             Layout.fillWidth: true
                             Layout.preferredHeight: 40
-                            enabled: backend.meetingStatus !== "connecting"
+                            enabled: backend.meetingStatus !== "connecting" && backend.meetingStatus !== "joining"
 
                             onClicked: {
                                 if (backend.meetingActive) {
@@ -634,6 +636,19 @@ ApplicationWindow {
                                 color: "transparent"
                             }
 
+                            property int pendingIndex: -1
+
+                            onCurrentIndexChanged: {
+                                // Check if switching to CSV tab (index 1) with ShotGrid versions loaded
+                                if (currentIndex === 1 && backend.hasShotGridVersions && versionModel.rowCount() > 0) {
+                                    // Store the pending index and revert to Flow PTR tab
+                                    pendingIndex = 1
+                                    currentIndex = 0
+                                    // Show warning dialog
+                                    switchToCsvWarningDialog.open()
+                                }
+                            }
+
                             TabButton {
                                 text: "Flow PTR Playlist"
                                 background: Rectangle {
@@ -713,6 +728,7 @@ ApplicationWindow {
                                 }
 
                                 ComboBox {
+                                    id: playlistComboBox
                                     Layout.fillWidth: true
                                     model: backend.shotgridPlaylists
                                     displayText: currentIndex >= 0 ? currentText : "Select Playlist"
@@ -746,6 +762,15 @@ ApplicationWindow {
                                             backend.selectShotgridPlaylist(currentIndex)
                                         }
                                     }
+
+                                    // Reset to first playlist when model changes
+                                    onModelChanged: {
+                                        if (model.length > 0) {
+                                            currentIndex = 0
+                                        } else {
+                                            currentIndex = -1
+                                        }
+                                    }
                                 }
 
                                 Button {
@@ -754,7 +779,15 @@ ApplicationWindow {
                                     enabled: backend.shotgridPlaylists.length > 0
 
                                     onClicked: {
-                                        backend.loadShotgridPlaylist()
+                                        // Check if reloading the same playlist
+                                        var isSamePlaylist = backend.selectedPlaylistId === backend.lastLoadedPlaylistId
+
+                                        // Only show confirmation if there are existing versions AND loading a different playlist
+                                        if (versionModel.rowCount() > 0 && !isSamePlaylist) {
+                                            loadPlaylistConfirmDialog.open()
+                                        } else {
+                                            backend.loadShotgridPlaylist()
+                                        }
                                     }
 
                                     background: Rectangle {
@@ -3266,6 +3299,189 @@ ApplicationWindow {
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                     font.pixelSize: 14
+                }
+            }
+        }
+    }
+
+    // Switch to CSV Warning Dialog
+    Dialog {
+        id: switchToCsvWarningDialog
+        modal: true
+        anchors.centerIn: parent
+        width: 450
+        title: "Switch to CSV Playlist"
+
+        background: Rectangle {
+            color: themeManager.cardBackground
+            border.color: themeManager.borderColor
+            border.width: 1
+            radius: 8
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 20
+
+            Text {
+                text: "⚠️ Warning"
+                font.pixelSize: 18
+                font.bold: true
+                color: "#f57c00"
+                Layout.alignment: Qt.AlignHCenter
+            }
+
+            Text {
+                text: "You are using a playlist from Flow Production Tracking. If you would like to add versions to the session, please add them there.\n\nWould you like to clear the current session and use a CSV instead?"
+                font.pixelSize: 13
+                color: themeManager.textColor
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                Button {
+                    text: "Cancel"
+                    Layout.fillWidth: true
+
+                    onClicked: {
+                        switchToCsvWarningDialog.close()
+                        playlistTabBar.pendingIndex = -1
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered ? "#3a3a3a" : themeManager.cardBackground
+                        radius: 6
+                        border.color: themeManager.borderColor
+                        border.width: 1
+                    }
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: themeManager.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font.pixelSize: 14
+                    }
+                }
+
+                Button {
+                    text: "Clear & Use CSV"
+                    Layout.fillWidth: true
+
+                    onClicked: {
+                        switchToCsvWarningDialog.close()
+                        backend.resetWorkspace()
+                        playlistTabBar.currentIndex = playlistTabBar.pendingIndex
+                        playlistTabBar.pendingIndex = -1
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered ? themeManager.accentHover : themeManager.accentColor
+                        radius: 6
+                    }
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: "#ffffff"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font.pixelSize: 14
+                    }
+                }
+            }
+        }
+    }
+
+    // Load Playlist Confirmation Dialog
+    Dialog {
+        id: loadPlaylistConfirmDialog
+        modal: true
+        anchors.centerIn: parent
+        width: 400
+        title: "Load Playlist"
+
+        background: Rectangle {
+            color: themeManager.cardBackground
+            border.color: themeManager.borderColor
+            border.width: 1
+            radius: 8
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 20
+
+            Text {
+                text: "⚠️ Warning"
+                font.pixelSize: 18
+                font.bold: true
+                color: "#f57c00"
+                Layout.alignment: Qt.AlignHCenter
+            }
+
+            Text {
+                text: "Are you sure you want to load a new playlist?\n\nThis will remove all existing versions and notes from the current session."
+                font.pixelSize: 13
+                color: themeManager.textColor
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                Button {
+                    text: "Cancel"
+                    Layout.fillWidth: true
+
+                    onClicked: {
+                        loadPlaylistConfirmDialog.close()
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered ? "#3a3a3a" : themeManager.cardBackground
+                        radius: 6
+                        border.color: themeManager.borderColor
+                        border.width: 1
+                    }
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: themeManager.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font.pixelSize: 14
+                    }
+                }
+
+                Button {
+                    text: "Load Playlist"
+                    Layout.fillWidth: true
+
+                    onClicked: {
+                        loadPlaylistConfirmDialog.close()
+                        backend.loadShotgridPlaylist()
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered ? themeManager.accentHover : themeManager.accentColor
+                        radius: 6
+                    }
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: "#ffffff"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font.pixelSize: 14
+                    }
                 }
             }
         }
