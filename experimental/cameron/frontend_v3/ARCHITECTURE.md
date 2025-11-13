@@ -6,36 +6,35 @@ The DNA Dailies Notes Assistant is built with a **decoupled client-server archit
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        CLIENT LAYER                              │
+│                        CLIENT LAYER                             │
 ├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │
-│  │   PySide6    │  │   Web App    │  │     CLI      │         │
-│  │   Qt Client  │  │   (Future)   │  │   (Future)   │         │
-│  │  (frontend_v3)│  │              │  │              │         │
-│  └───────┬──────┘  └──────┬───────┘  └──────┬───────┘         │
-│          │                │                  │                  │
-│          └────────────────┼──────────────────┘                  │
+│                                                                 │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │   PySide6    │  │   Web Apps   │  │  RV Package  │           │
+│  │   Qt Client  │  │   (Future)   │  │   (Future)   │           │
+│  │ (frontend_v3)│  │              │  │              │           │
+│  └───────┬──────┘  └──────┬───────┘  └──────┬───────┘           │
+│          │                │                 │                   │
+│          └────────────────┼─────────────────┘                   │
 │                           │ HTTP/REST                           │
 └───────────────────────────┼─────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      BACKEND API LAYER                           │
-│                    (FastAPI - backend/)                          │
+│                      BACKEND API LAYER                          │
+│                    (FastAPI - backend/)                         │
 ├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │              Core API Endpoints                           │  │
-│  │  • /health - Health check and feature status            │  │
-│  │  • /settings - Configuration management                  │  │
-│  │  • /versions - Version CRUD operations                   │  │
-│  │  • /notes - AI note generation                           │  │
-│  │  • /playlists - CSV import                               │  │
-│  │  • /shotgrid - ShotGrid integration                      │  │
-│  │  • /email - Email service                                │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│                                                                  │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                     Core API Services                    │   │
+│  │                                                          │   │
+│  │  • /settings/* - Configuration management                │   │
+│  │  • /versions/* - Version CRUD, notes, AI, CSV            │   │
+│  │  • /shotgrid/* - ShotGrid integration                    │   │
+│  │                                                          │   │
+│  │  See "API Endpoints" in API docs for complete list       │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                 │
 └───────────────┬──────────────────┬──────────────────────────────┘
                 │                  │
                 ▼                  ▼
@@ -45,9 +44,9 @@ The DNA Dailies Notes Assistant is built with a **decoupled client-server archit
 │  • OpenAI API          │  │  • In-memory versions  │
 │  • Claude API          │  │  • .env config file    │
 │  • Gemini API          │  │  • CSV import/export   │
-│  • Vexa Transcription  │  │                        │
+│  • Vexa Transcription  │  │  • Flow PTR Cloud      │
 │  • ShotGrid API        │  │                        │
-│  • Gmail API           │  │                        │
+│                        │  │                        │
 └────────────────────────┘  └────────────────────────┘
 ```
 
@@ -86,34 +85,40 @@ The backend API is mostly stateless:
 | Playlist Service | `playlist.py` | CSV import |
 | ShotGrid Service | `shotgrid_service.py` | ShotGrid API integration |
 | Settings Service | `settings_service.py` | Configuration persistence |
-| Email Service | `email_service.py` | Gmail integration |
 
 ### API Endpoints
 
-**28 total endpoints** organized by service:
+**18 endpoints** used by `frontend_v3`, organized by service:
 
 ```
-/                           GET   - API info
-/health                     GET   - Health check
-/docs                       GET   - Interactive API docs
-/settings                   GET   - Get settings
-/settings                   POST  - Update settings
-/settings/save-partial      POST  - Partial settings update
-/versions                   GET   - List versions
-/versions                   POST  - Create version
-/versions/{id}              GET   - Get version details
-/versions/{id}              DELETE- Delete version
-/versions/{id}/notes        GET   - Get version notes
-/versions/{id}/notes        PUT   - Update version notes
-/versions/export/csv        GET   - Export to CSV
-/versions/import/csv        POST  - Import from CSV
-/notes/generate             POST  - Generate AI notes
-/playlists/import-csv       POST  - Import CSV playlist
-/shotgrid/*                 *     - 9 ShotGrid endpoints
-/email/send                 POST  - Send email
+Settings (2 endpoints):
+/settings                                          GET    - Get all settings
+/settings/save-partial                             POST   - Partial settings update
+
+Versions (13 endpoints):
+/versions                                          GET    - List all versions
+/versions                                          POST   - Create version
+/versions                                          DELETE - Clear all versions
+/versions/{id}                                     GET    - Get version details
+/versions/{id}/notes                               POST   - Add user note (appends)
+/versions/{id}/notes                               PUT    - Update notes (replaces)
+/versions/{id}/generate-ai-notes                   POST   - Generate AI notes from transcript
+/versions/{id}/attachments                         GET    - Get version attachments
+/versions/{id}/attachments                         POST   - Add attachment
+/versions/{id}/attachments                         DELETE - Remove attachment
+/versions/export/csv                               GET    - Export versions to CSV
+
+ShotGrid (6 endpoints):
+/shotgrid/config                                   POST   - Save ShotGrid configuration
+/shotgrid/active-projects                          GET    - List active ShotGrid projects
+/shotgrid/latest-playlists/{project_id}            GET    - Get latest playlists for project
+/shotgrid/playlist-versions-with-statuses/{id}     GET    - Get playlist versions with statuses
+/shotgrid/version-statuses                         GET    - Get list of version statuses
+/shotgrid/batch-sync-notes                         POST   - Batch sync notes to ShotGrid
 ```
 
-Full API documentation: [`backend/API_DOCUMENTATION.md`](backend/API_DOCUMENTATION.md)
+**Notes:**
+- Backend has additional endpoints not used by frontend_v3 (see [`backend/API_DOCUMENTATION.md`](backend/API_DOCUMENTATION.md))
 
 ## Frontend Architecture
 
@@ -131,9 +136,11 @@ frontend_v3/
 ├── main.py                  # Entry point, Qt application
 ├── config.py                # Configuration management
 │
-├── services/                # Backend communication
-│   ├── backend_service.py   # HTTP client for backend API
-│   ├── vexa_service.py      # Vexa API wrapper
+├── services/                # Backend communication & real-time services
+│   ├── backend_service.py   # HTTP client for backend API + WebSocket coordination
+│   ├── vexa_websocket_service.py  # Real-time Vexa WebSocket client
+│   ├── transcript_utils.py  # Transcript processing utilities
+│   ├── vexa_service.py      # Vexa HTTP API wrapper (legacy)
 │   └── color_picker_service.py
 │
 ├── models/                  # Qt data models
@@ -148,11 +155,19 @@ frontend_v3/
 
 **Communication Pattern:**
 ```
-QML UI
-  ↕ Qt Signals/Slots
-Python Backend Service
-  ↕ HTTP REST
-FastAPI Backend
+                                                    ┌─→ OpenAI API
+                                                    │
+QML UI                                              ├─→ Claude API
+  ↕ Qt Signals/Slots                                │
+Python Backend Service ←─────┐                      ├─→ Gemini API
+  ↕ HTTP REST                │ Qt Signals/Slots     │
+FastAPI Backend ─────────────┼──────────────────────┤
+                             │                      ├─→ ShotGrid API
+                             ↕                      |
+                  Vexa WebSocket Service            └─→ Vexa HTTP API
+                             ↕ WebSocket (wss://)      (Meeting Bot control)
+                  Vexa Cloud API                        
+                  (Real-time transcription)
 ```
 
 ### Configuration System
@@ -184,7 +199,44 @@ FastAPI Backend
 7. QML UI refreshes version list display
 ```
 
-### Example 2: Generating AI Notes
+### Example 2: Real-time Transcript Streaming (WebSocket)
+
+```
+1. User clicks "Join Meeting" in Qt frontend
+2. Frontend calls backend_service.start_meeting()
+   a. Starts Vexa bot via HTTP POST to Vexa API
+   b. Receives meeting ID (e.g., "google_meet/abc-def-ghi/12345")
+3. backend_service creates VexaWebSocketService instance
+4. VexaWebSocketService connects to wss://api.cloud.vexa.ai/ws
+5. After connection, subscribes to meeting ID
+6. Vexa sends real-time transcript events:
+   - "transcript.mutable" - In-progress segments (being spoken)
+   - "transcript.finalized" - Completed segments
+   - "meeting.status" - Status changes (joining, active, ended)
+7. VexaWebSocketService emits Qt signals:
+   - transcriptMutableReceived(segments)
+   - transcriptFinalizedReceived(segments)
+   - meetingStatusChanged(status)
+8. backend_service receives signals and processes:
+   a. Merges segments by UTC timestamp (absolute_start_time)
+   b. Deduplicates by keeping longest text per timestamp
+   c. Groups consecutive segments by speaker
+   d. Tracks per-version segments in _current_version_segments
+   e. Preserves base transcript when switching versions
+9. backend_service emits currentTranscriptChanged signal
+10. QML UI updates transcript display in real-time
+11. Transcript auto-saves to selected version via HTTP PUT
+
+Version Switching Behavior:
+- When user selects Version A: saves existing transcript as "base"
+- New segments added to _current_version_segments list
+- Display = base_transcript + formatted(current_version_segments)
+- When switching to Version B: marks all current segments as "seen"
+- Version B starts fresh, only capturing new segments
+- When switching back to Version A: previous content preserved
+```
+
+### Example 3: Generating AI Notes
 
 ```
 1. User clicks "Regenerate AI Notes" for a version
@@ -199,7 +251,7 @@ FastAPI Backend
 6. User can add notes to their manual notes
 ```
 
-### Example 3: ShotGrid Integration
+### Example 4: ShotGrid Integration
 
 ```
 1. User configures ShotGrid in Preferences
@@ -213,6 +265,115 @@ FastAPI Backend
 9. Backend fetches versions from ShotGrid
 10. Versions displayed in frontend
 ```
+
+## Real-time Transcription Architecture
+
+### WebSocket Implementation
+
+The frontend implements **direct WebSocket connectivity** to Vexa's transcription service, bypassing the backend for real-time data to minimize latency:
+
+**Key Components:**
+
+1. **vexa_websocket_service.py** - QWebSocket client for Vexa Cloud API
+   - Manages WebSocket connection lifecycle
+   - Handles subscription/unsubscription to meetings
+   - Parses incoming transcript events
+   - Implements exponential backoff for reconnection
+   - Emits Qt signals for transcript updates
+
+2. **transcript_utils.py** - Segment processing utilities
+   - `merge_segments_by_absolute_utc()` - Deduplication by timestamp
+   - `group_segments_by_speaker()` - Speaker grouping with max chars
+   - `format_transcript_for_display()` - Timestamp + speaker formatting
+   - `clean_text()` - Text normalization
+
+3. **backend_service.py** - WebSocket coordination layer
+   - Instantiates VexaWebSocketService
+   - Connects WebSocket signals to processing logic
+   - Manages per-version segment tracking
+   - Handles version switching without losing transcripts
+
+### Transcript Segment Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Vexa Cloud (Speech Recognition)                             │
+└───────────────┬─────────────────────────────────────────────┘
+                │ WebSocket Events
+                ▼
+┌─────────────────────────────────────────────────────────────┐
+│ VexaWebSocketService (QWebSocket)                           │
+│ • Receives "transcript.mutable" - In-progress segments      │
+│ • Receives "transcript.finalized" - Completed segments      │
+│ • Emits Qt signals                                          │
+└───────────────┬─────────────────────────────────────────────┘
+                │ transcriptMutableReceived(segments)
+                ▼
+┌─────────────────────────────────────────────────────────────┐
+│ backend_service._on_transcript_mutable()                    │
+│ 1. Merge with _all_segments (global meeting history)       │
+│ 2. Detect new/updated segments (by timestamp + length)     │
+│ 3. Update _current_version_segments (per-version list)     │
+│ 4. Rebuild transcript = base + formatted(current_segments) │
+└───────────────┬─────────────────────────────────────────────┘
+                │ currentTranscriptChanged
+                ▼
+┌─────────────────────────────────────────────────────────────┐
+│ QML UI - Updates transcript display in real-time            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Mutable Segment Handling
+
+Vexa sends **progressive updates** for segments being spoken:
+
+```
+Time 0s:  "Hello"           (mutable, timestamp: 123.0)
+Time 1s:  "Hello world"     (mutable, timestamp: 123.0)
+Time 2s:  "Hello world!"    (finalized, timestamp: 123.0)
+```
+
+**Solution:** Track segments by `(timestamp, text_length)` and always prefer longer text:
+
+```python
+# _seen_segment_ids: Dict[timestamp -> max_length]
+if segment_key not in self._seen_segment_ids:
+    # New segment
+elif self._seen_segment_ids[segment_key] < text_length:
+    # Updated with more text - replace in _current_version_segments
+```
+
+### Version-Specific Routing
+
+Each version maintains its own transcript during a meeting:
+
+```
+Meeting Timeline:
+[0:00] Join meeting, select Version A
+[0:10] "Hello world" → saved to Version A
+[0:20] Switch to Version B
+[0:30] "Goodbye" → saved to Version B (NOT in Version A)
+[0:40] Switch back to Version A
+[0:50] "How are you?" → appended to Version A
+
+Version A transcript: "Hello world\nHow are you?"
+Version B transcript: "Goodbye"
+```
+
+**Implementation:**
+- `_base_transcript` - Transcript that existed when version was selected
+- `_current_version_segments` - New segments captured during this session
+- `_seen_segment_ids` - Prevents duplicate processing across versions
+- When switching versions: mark all current segments as "seen"
+- Display = `base_transcript + "\n" + formatted(current_version_segments)`
+
+### Performance Optimizations
+
+1. **Deduplication** - Use UTC timestamps to avoid duplicate segments
+2. **Incremental Updates** - Only rebuild transcript when segments change
+3. **Speaker Grouping** - Merge consecutive segments from same speaker
+4. **Length Tracking** - Detect mutable segment updates by text length
+5. **Direct WebSocket** - Bypass backend for real-time data (10x lower latency vs polling)
 
 ## Deployment Scenarios
 
@@ -273,7 +434,7 @@ Would need to add:
 ## Future Architecture Enhancements
 
 ### Planned Improvements
-- [ ] WebSocket support for real-time transcript push
+- [x] WebSocket support for real-time transcript push (COMPLETED - using Vexa Cloud WebSocket API)
 - [ ] Database persistence (PostgreSQL/SQLite)
 - [ ] User authentication and sessions
 - [ ] Web frontend (React/Vue)
@@ -325,11 +486,11 @@ import requests
 class DNAClient:
     def __init__(self, backend_url="http://localhost:8000"):
         self.base_url = backend_url
-    
+
     def health_check(self):
         response = requests.get(f"{self.base_url}/health")
         return response.json()
-    
+
     # Add more API calls as needed...
 
 # Use it
@@ -371,10 +532,10 @@ python main.py
 
 The DNA Dailies Notes Assistant uses a clean, decoupled architecture that separates frontend and backend concerns. This design:
 
-✅ Allows multiple frontend implementations  
-✅ Enables independent backend deployment  
-✅ Facilitates testing and development  
-✅ Supports future scalability  
-✅ Maintains simple local desktop use case  
+✅ Allows multiple frontend implementations
+✅ Enables independent backend deployment
+✅ Facilitates testing and development
+✅ Supports future scalability
+✅ Maintains simple local desktop use case
 
 The backend is a standalone REST API that can serve any HTTP client, making it flexible for current needs and future expansion.
