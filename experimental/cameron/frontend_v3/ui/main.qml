@@ -772,7 +772,7 @@ ApplicationWindow {
                                 }
 
                                 Button {
-                                    text: "Sync Playlist Notes"
+                                    text: "Send Session to Flow PTR"
                                     Layout.fillWidth: true
                                     enabled: backend.shotgridUrl && backend.shotgridApiKey && backend.shotgridScriptName && backend.hasShotGridVersions
 
@@ -1903,6 +1903,11 @@ ApplicationWindow {
         property string tempOpenaiApiKey: ""
         property string tempClaudeApiKey: ""
         property string tempGeminiApiKey: ""
+        property bool tempSgSyncTranscripts: false
+        property string tempSgDnaTranscriptEntity: ""
+        property string tempSgTranscriptField: ""
+        property string tempSgVersionField: ""
+        property string tempSgPlaylistField: ""
 
         onAboutToShow: {
             // Load current values into temporary properties
@@ -1917,6 +1922,11 @@ ApplicationWindow {
             tempOpenaiApiKey = backend.openaiApiKey
             tempClaudeApiKey = backend.claudeApiKey
             tempGeminiApiKey = backend.geminiApiKey
+            tempSgSyncTranscripts = backend.sgSyncTranscripts
+            tempSgDnaTranscriptEntity = backend.sgDnaTranscriptEntity || ""
+            tempSgTranscriptField = backend.sgTranscriptField || "sg_body"
+            tempSgVersionField = backend.sgVersionField || "sg_version"
+            tempSgPlaylistField = backend.sgPlaylistField || "sg_playlist"
 
             // Update text fields with temporary values
             sgWebUrlInput.text = tempSgUrl
@@ -1930,6 +1940,11 @@ ApplicationWindow {
             openaiApiKeyPrefInput.text = tempOpenaiApiKey
             claudeApiKeyPrefInput.text = tempClaudeApiKey
             geminiApiKeyPrefInput.text = tempGeminiApiKey
+            sgSyncTranscriptsToggle.checked = tempSgSyncTranscripts
+            sgDnaTranscriptEntityInput.text = tempSgDnaTranscriptEntity
+            sgTranscriptFieldInput.text = tempSgTranscriptField
+            sgVersionFieldInput.text = tempSgVersionField
+            sgPlaylistFieldInput.text = tempSgPlaylistField
 
             // Check if window is too small for preferences dialog
             var needsWidthExpansion = root.width < minRequiredWidth
@@ -2298,6 +2313,178 @@ ApplicationWindow {
                                 font.pixelSize: 11
                                 color: themeManager.mutedTextColor
                                 Layout.fillWidth: true
+                            }
+                        }
+
+                        // DNA Transcript Settings Section
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: themeManager.borderColor
+                            Layout.topMargin: 10
+                            Layout.bottomMargin: 10
+                        }
+
+                        Text {
+                            text: "DNA Transcript Settings"
+                            font.pixelSize: 14
+                            font.bold: true
+                            color: themeManager.textColor
+                        }
+
+                        // Sync Transcripts Toggle
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            Text {
+                                text: "Sync Transcripts:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            Switch {
+                                id: sgSyncTranscriptsToggle
+
+                                indicator: Rectangle {
+                                    implicitWidth: 48
+                                    implicitHeight: 24
+                                    x: parent.leftPadding
+                                    y: parent.height / 2 - height / 2
+                                    radius: 12
+                                    color: parent.checked ? themeManager.accentColor : "#555555"
+                                    border.color: parent.checked ? themeManager.accentColor : "#666666"
+
+                                    Rectangle {
+                                        x: parent.parent.checked ? parent.width - width - 2 : 2
+                                        y: (parent.height - height) / 2
+                                        width: 20
+                                        height: 20
+                                        radius: 10
+                                        color: "white"
+
+                                        Behavior on x {
+                                            NumberAnimation { duration: 200 }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text {
+                                text: "Enable transcript sync to ShotGrid custom entity"
+                                font.pixelSize: 11
+                                color: themeManager.mutedTextColor
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        // Transcript Entity Field
+                        ColumnLayout {
+                            spacing: 5
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "Transcript Entity:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            TextField {
+                                id: sgDnaTranscriptEntityInput
+                                Layout.fillWidth: true
+                                placeholderText: "e.g., CustomEntity01"
+                                color: themeManager.textColor
+                                enabled: sgSyncTranscriptsToggle.checked
+                                background: Rectangle {
+                                    color: themeManager.cardBackground
+                                    border.color: themeManager.borderColor
+                                    border.width: 1
+                                    radius: 4
+                                }
+                            }
+
+                            Text {
+                                text: "Entity type code (not display name) - e.g., 'CustomEntity01' not 'DNA Transcripts'"
+                                font.pixelSize: 10
+                                color: themeManager.mutedTextColor
+                            }
+                        }
+
+                        // Transcript Field
+                        ColumnLayout {
+                            spacing: 5
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "Transcript Field:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            TextField {
+                                id: sgTranscriptFieldInput
+                                Layout.fillWidth: true
+                                placeholderText: "Default: sg_body"
+                                color: themeManager.textColor
+                                enabled: sgSyncTranscriptsToggle.checked
+                                background: Rectangle {
+                                    color: themeManager.cardBackground
+                                    border.color: themeManager.borderColor
+                                    border.width: 1
+                                    radius: 4
+                                }
+                            }
+                        }
+
+                        // Version Field
+                        ColumnLayout {
+                            spacing: 5
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "Version Field:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            TextField {
+                                id: sgVersionFieldInput
+                                Layout.fillWidth: true
+                                placeholderText: "Default: sg_version"
+                                color: themeManager.textColor
+                                enabled: sgSyncTranscriptsToggle.checked
+                                background: Rectangle {
+                                    color: themeManager.cardBackground
+                                    border.color: themeManager.borderColor
+                                    border.width: 1
+                                    radius: 4
+                                }
+                            }
+                        }
+
+                        // Playlist Field
+                        ColumnLayout {
+                            spacing: 5
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "Playlist Field:"
+                                font.pixelSize: 12
+                                color: themeManager.textColor
+                            }
+
+                            TextField {
+                                id: sgPlaylistFieldInput
+                                Layout.fillWidth: true
+                                placeholderText: "Default: sg_playlist"
+                                color: themeManager.textColor
+                                enabled: sgSyncTranscriptsToggle.checked
+                                background: Rectangle {
+                                    color: themeManager.cardBackground
+                                    border.color: themeManager.borderColor
+                                    border.width: 1
+                                    radius: 4
+                                }
                             }
                         }
 
@@ -2706,6 +2893,13 @@ ApplicationWindow {
                         backend.includeStatuses = includeStatusesToggle.checked
                         backend.shotgridAuthorEmail = sgAuthorEmailInput.text
                         backend.prependSessionHeader = prependSessionHeaderToggle.checked
+
+                        // DNA Transcript settings
+                        backend.sgSyncTranscripts = sgSyncTranscriptsToggle.checked
+                        backend.sgDnaTranscriptEntity = sgDnaTranscriptEntityInput.text
+                        backend.sgTranscriptField = sgTranscriptFieldInput.text
+                        backend.sgVersionField = sgVersionFieldInput.text
+                        backend.sgPlaylistField = sgPlaylistFieldInput.text
 
                         // Vexa settings
                         backend.vexaApiKey = vexaApiKeyPrefInput.text

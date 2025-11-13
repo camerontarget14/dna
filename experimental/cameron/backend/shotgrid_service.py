@@ -1,14 +1,15 @@
-import os
+import argparse
 import hashlib
+import os
 import re
 import sys
+from typing import List, Optional
+
 from dotenv import load_dotenv
-from shotgun_api3 import Shotgun
-import argparse
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from shotgun_api3 import Shotgun
 
 load_dotenv()
 
@@ -21,31 +22,39 @@ _runtime_config = {
     "SHOTGRID_VERSION_FIELD": os.environ.get("SHOTGRID_VERSION_FIELD", "code"),
     "SHOTGRID_SHOT_FIELD": os.environ.get("SHOTGRID_SHOT_FIELD", "entity"),
     "SHOTGRID_TYPE_FILTER": os.environ.get("SHOTGRID_TYPE_FILTER", ""),
-    "DEMO_MODE": os.environ.get("DEMO_MODE", "false").lower() == "true"
+    "DEMO_MODE": os.environ.get("DEMO_MODE", "false").lower() == "true",
 }
+
 
 # Helper functions to get current configuration
 def get_shotgrid_url():
     return _runtime_config.get("SHOTGRID_URL")
 
+
 def get_script_name():
     return _runtime_config.get("SCRIPT_NAME")
+
 
 def get_api_key():
     return _runtime_config.get("API_KEY")
 
+
 def get_version_field():
     return _runtime_config.get("SHOTGRID_VERSION_FIELD", "code")
 
+
 def get_shot_field():
     return _runtime_config.get("SHOTGRID_SHOT_FIELD", "entity")
+
 
 def get_type_filter():
     type_filter = _runtime_config.get("SHOTGRID_TYPE_FILTER", "")
     return [t.strip() for t in type_filter.split(",") if t.strip()]
 
+
 def get_demo_mode():
     return _runtime_config.get("DEMO_MODE", False)
+
 
 # For backward compatibility
 SHOTGRID_URL = get_shotgrid_url()
@@ -242,10 +251,7 @@ def get_playlist_shot_names(playlist_id):
             if get_demo_mode():
                 display_name = anonymize_version_name(version_name)
 
-            version_data.append({
-                "id": version_id,
-                "name": display_name
-            })
+            version_data.append({"id": version_id, "name": display_name})
 
     return version_data
 
@@ -268,12 +274,16 @@ def get_version_statuses(project_id=None):
         # The response structure is: {'sg_status_list': {'property_name': {'editable': bool, 'value': ...}}}
         # We need to look for 'valid_values' or 'display_values' property
         field_props = schema.get("sg_status_list", {})
-        print(f"DEBUG: field_props keys: {field_props.keys() if isinstance(field_props, dict) else 'not a dict'}")
+        print(
+            f"DEBUG: field_props keys: {field_props.keys() if isinstance(field_props, dict) else 'not a dict'}"
+        )
 
         # Try to find valid_values property
         if "properties" in field_props:
             props = field_props["properties"]
-            print(f"DEBUG: Properties found: {props.keys() if isinstance(props, dict) else 'not a dict'}")
+            print(
+                f"DEBUG: Properties found: {props.keys() if isinstance(props, dict) else 'not a dict'}"
+            )
 
             if "valid_values" in props:
                 valid_values_prop = props["valid_values"]
@@ -283,7 +293,10 @@ def get_version_statuses(project_id=None):
             elif "display_values" in props:
                 display_values_prop = props["display_values"]
                 print(f"DEBUG: display_values property: {display_values_prop}")
-                if isinstance(display_values_prop, dict) and "value" in display_values_prop:
+                if (
+                    isinstance(display_values_prop, dict)
+                    and "value" in display_values_prop
+                ):
                     status_display_names = display_values_prop["value"]
 
         print(f"DEBUG: Final status_display_names: {status_display_names}")
@@ -308,7 +321,12 @@ def get_playlist_versions_with_statuses(playlist_id):
     version_ids = [v["id"] for v in playlist["versions"] if v.get("id")]
     if not version_ids:
         return []
-    version_fields = ["id", SHOTGRID_VERSION_FIELD, SHOTGRID_SHOT_FIELD, "sg_status_list"]
+    version_fields = [
+        "id",
+        SHOTGRID_VERSION_FIELD,
+        SHOTGRID_SHOT_FIELD,
+        "sg_status_list",
+    ]
     versions = sg.find("Version", [["id", "in", version_ids]], version_fields)
 
     version_data = []
@@ -324,11 +342,7 @@ def get_playlist_versions_with_statuses(playlist_id):
             if get_demo_mode():
                 display_name = anonymize_version_name(version_name)
 
-            version_info = {
-                "id": version_id,
-                "name": display_name,
-                "status": status
-            }
+            version_info = {"id": version_id, "name": display_name, "status": status}
             version_data.append(version_info)
 
     return version_data
@@ -527,8 +541,8 @@ def update_shotgrid_config(config: ShotGridConfigRequest):
             "config": {
                 "shotgrid_url": get_shotgrid_url(),
                 "script_name": get_script_name(),
-                "api_key_set": bool(get_api_key())
-            }
+                "api_key_set": bool(get_api_key()),
+            },
         }
     except Exception as e:
         return JSONResponse(
@@ -544,8 +558,8 @@ def get_shotgrid_config():
         "config": {
             "shotgrid_url": get_shotgrid_url(),
             "script_name": get_script_name(),
-            "api_key_set": bool(get_api_key())
-        }
+            "api_key_set": bool(get_api_key()),
+        },
     }
 
 
@@ -556,6 +570,7 @@ def shotgrid_active_projects():
         return {"status": "success", "projects": projects}
     except Exception as e:
         import traceback
+
         print(f"ERROR: Failed to get active projects: {e}")
         print(traceback.format_exc())
         return JSONResponse(
@@ -663,8 +678,11 @@ def shotgrid_most_recent_playlist_items():
 
 class SyncNotesRequest(BaseModel):
     """Request model for syncing notes to ShotGrid"""
+
     version_id: str  # Internal app version ID (can be string)
-    shotgrid_version_id: int  # ShotGrid version ID (unique integer from ShotGrid database)
+    shotgrid_version_id: (
+        int  # ShotGrid version ID (unique integer from ShotGrid database)
+    )
     notes: str
     author_email: Optional[str] = None
     prepend_session_header: bool = False
@@ -699,7 +717,7 @@ def sync_notes_to_shotgrid(request: SyncNotesRequest):
         version = sg.find_one(
             "Version",
             [["id", "is", request.shotgrid_version_id]],
-            ["id", "code", "user", "project", "entity"]  # user is the creator
+            ["id", "code", "user", "project", "entity"],  # user is the creator
         )
 
         if not version:
@@ -707,8 +725,8 @@ def sync_notes_to_shotgrid(request: SyncNotesRequest):
                 status_code=404,
                 content={
                     "status": "error",
-                    "message": f"Version ID {request.shotgrid_version_id} not found in ShotGrid"
-                }
+                    "message": f"Version ID {request.shotgrid_version_id} not found in ShotGrid",
+                },
             )
 
         # Build note content
@@ -724,12 +742,12 @@ def sync_notes_to_shotgrid(request: SyncNotesRequest):
         author = None
         if request.author_email:
             author = sg.find_one(
-                "HumanUser",
-                [["email", "is", request.author_email]],
-                ["id", "name"]
+                "HumanUser", [["email", "is", request.author_email]], ["id", "name"]
             )
             if not author:
-                print(f"Warning: Author with email '{request.author_email}' not found in ShotGrid")
+                print(
+                    f"Warning: Author with email '{request.author_email}' not found in ShotGrid"
+                )
 
         # Get version creator as default recipient
         recipients = []
@@ -742,9 +760,9 @@ def sync_notes_to_shotgrid(request: SyncNotesRequest):
             "Note",
             [
                 ["note_links", "is", {"type": "Version", "id": version["id"]}],
-                ["content", "is", note_content]
+                ["content", "is", note_content],
             ],
-            ["id", "content", "created_at"]
+            ["id", "content", "created_at"],
         )
 
         if existing_notes:
@@ -752,7 +770,7 @@ def sync_notes_to_shotgrid(request: SyncNotesRequest):
             return {
                 "status": "skipped",
                 "message": f"Note already exists for version '{version_code}' (duplicate prevented)",
-                "existing_note_id": existing_notes[0]["id"]
+                "existing_note_id": existing_notes[0]["id"],
             }
 
         # Create note data
@@ -762,7 +780,7 @@ def sync_notes_to_shotgrid(request: SyncNotesRequest):
             "note_links": [version],
             "subject": f"Notes for {version_code}",
             "content": note_content,
-            "addressings_to": recipients
+            "addressings_to": recipients,
         }
 
         # Add author if found
@@ -772,16 +790,16 @@ def sync_notes_to_shotgrid(request: SyncNotesRequest):
         # Create the note
         created_note = sg.create("Note", note_data)
 
-        print(f"✓ Created note for version '{version_code}' (Note ID: {created_note['id']})")
+        print(
+            f"✓ Created note for version '{version_code}' (Note ID: {created_note['id']})"
+        )
 
         # Update version status if requested
         status_updated = False
         if request.update_status and request.status_code:
             try:
                 sg.update(
-                    "Version",
-                    version["id"],
-                    {"sg_status_list": request.status_code}
+                    "Version", version["id"], {"sg_status_list": request.status_code}
                 )
                 status_updated = True
                 print(f"✓ Updated version status to '{request.status_code}'")
@@ -798,12 +816,14 @@ def sync_notes_to_shotgrid(request: SyncNotesRequest):
                         "Note",
                         created_note["id"],
                         attachment_path,
-                        field_name="attachments"
+                        field_name="attachments",
                     )
                     attachments_uploaded.append(attachment_path)
                     print(f"✓ Uploaded attachment: {attachment_path}")
                 except Exception as attach_error:
-                    print(f"Warning: Failed to upload attachment '{attachment_path}': {attach_error}")
+                    print(
+                        f"Warning: Failed to upload attachment '{attachment_path}': {attach_error}"
+                    )
 
         return {
             "status": "success",
@@ -813,39 +833,54 @@ def sync_notes_to_shotgrid(request: SyncNotesRequest):
             "version_code": version_code,
             "status_updated": status_updated,
             "attachments_uploaded": len(attachments_uploaded),
-            "recipient_count": len(recipients)
+            "recipient_count": len(recipients),
         }
 
     except Exception as e:
         import traceback
+
         print(f"ERROR: Failed to sync notes to ShotGrid: {e}")
         print(traceback.format_exc())
         return JSONResponse(
             status_code=500,
-            content={
-                "status": "error",
-                "message": f"Failed to sync notes: {str(e)}"
-            }
+            content={"status": "error", "message": f"Failed to sync notes: {str(e)}"},
         )
 
 
 class VersionNotesItem(BaseModel):
     """Individual version with notes to sync"""
+
     version_id: str  # Internal app version ID
     shotgrid_version_id: int  # ShotGrid version ID
     notes: str  # Combined notes for this version
+    transcript: Optional[str] = (
+        None  # Transcript to sync to DNA Transcript custom entity
+    )
     status_code: Optional[str] = None  # Optional status update
     attachments: Optional[List[str]] = None  # List of attachment file paths
 
 
 class BatchSyncNotesRequest(BaseModel):
     """Request model for batch syncing notes to ShotGrid for entire playlist"""
+
     versions: List[VersionNotesItem]  # All versions with notes to sync
     author_email: Optional[str] = None
     prepend_session_header: bool = False
     playlist_name: Optional[str] = None
+    playlist_id: Optional[int] = (
+        None  # ShotGrid playlist ID for linking DNA Transcripts
+    )
     session_date: Optional[str] = None
     update_status: bool = False  # Whether to update version statuses
+    sync_transcripts: bool = (
+        False  # Whether to sync transcripts to DNA Transcript custom entity
+    )
+    dna_transcript_entity: Optional[str] = (
+        None  # Custom entity type name (e.g., "CustomEntity01")
+    )
+    transcript_field: Optional[str] = "sg_body"  # Field name for transcript text
+    version_field: Optional[str] = "sg_version"  # Field name for version link
+    playlist_field: Optional[str] = "sg_playlist"  # Field name for playlist link
 
 
 @router.post("/shotgrid/batch-sync-notes")
@@ -867,19 +902,19 @@ def batch_sync_notes_to_shotgrid(request: BatchSyncNotesRequest):
             "synced": [],
             "skipped": [],
             "failed": [],
-            "total": len(request.versions)
+            "total": len(request.versions),
         }
 
         # Look up author once if provided
         author = None
         if request.author_email:
             author = sg.find_one(
-                "HumanUser",
-                [["email", "is", request.author_email]],
-                ["id", "name"]
+                "HumanUser", [["email", "is", request.author_email]], ["id", "name"]
             )
             if not author:
-                print(f"Warning: Author with email '{request.author_email}' not found in ShotGrid")
+                print(
+                    f"Warning: Author with email '{request.author_email}' not found in ShotGrid"
+                )
 
         # Process each version
         for version_item in request.versions:
@@ -892,15 +927,17 @@ def batch_sync_notes_to_shotgrid(request: BatchSyncNotesRequest):
                 version = sg.find_one(
                     "Version",
                     [["id", "is", version_item.shotgrid_version_id]],
-                    ["id", "code", "user", "project", "entity"]
+                    ["id", "code", "user", "project", "entity"],
                 )
 
                 if not version:
-                    results["failed"].append({
-                        "version_id": version_item.version_id,
-                        "shotgrid_version_id": version_item.shotgrid_version_id,
-                        "error": f"Version ID {version_item.shotgrid_version_id} not found in ShotGrid"
-                    })
+                    results["failed"].append(
+                        {
+                            "version_id": version_item.version_id,
+                            "shotgrid_version_id": version_item.shotgrid_version_id,
+                            "error": f"Version ID {version_item.shotgrid_version_id} not found in ShotGrid",
+                        }
+                    )
                     continue
 
                 # Build note content
@@ -908,7 +945,9 @@ def batch_sync_notes_to_shotgrid(request: BatchSyncNotesRequest):
 
                 # Prepend session header if requested
                 if request.prepend_session_header and request.playlist_name:
-                    session_date = request.session_date or datetime.now().strftime("%Y-%m-%d")
+                    session_date = request.session_date or datetime.now().strftime(
+                        "%Y-%m-%d"
+                    )
                     header = f"**{request.playlist_name} - {session_date}**\n\n"
                     note_content = header + note_content
 
@@ -922,20 +961,22 @@ def batch_sync_notes_to_shotgrid(request: BatchSyncNotesRequest):
                     "Note",
                     [
                         ["note_links", "is", {"type": "Version", "id": version["id"]}],
-                        ["content", "is", note_content]
+                        ["content", "is", note_content],
                     ],
-                    ["id", "content", "created_at"]
+                    ["id", "content", "created_at"],
                 )
 
                 version_code = version.get("code", f"ID {version['id']}")
 
                 if existing_notes:
-                    results["skipped"].append({
-                        "version_id": version_item.version_id,
-                        "shotgrid_version_id": version_item.shotgrid_version_id,
-                        "version_code": version_code,
-                        "existing_note_id": existing_notes[0]["id"]
-                    })
+                    results["skipped"].append(
+                        {
+                            "version_id": version_item.version_id,
+                            "shotgrid_version_id": version_item.shotgrid_version_id,
+                            "version_code": version_code,
+                            "existing_note_id": existing_notes[0]["id"],
+                        }
+                    )
                     print(f"  ⊘ Skipped {version_code} (duplicate)")
                     continue
 
@@ -945,7 +986,7 @@ def batch_sync_notes_to_shotgrid(request: BatchSyncNotesRequest):
                     "note_links": [version],
                     "subject": f"Notes for {version_code}",
                     "content": note_content,
-                    "addressings_to": recipients
+                    "addressings_to": recipients,
                 }
 
                 # Add author if found
@@ -964,12 +1005,14 @@ def batch_sync_notes_to_shotgrid(request: BatchSyncNotesRequest):
                                 "Note",
                                 created_note["id"],
                                 attachment_path,
-                                field_name="attachments"
+                                field_name="attachments",
                             )
                             attachments_uploaded.append(attachment_path)
                             print(f"    ✓ Uploaded attachment: {attachment_path}")
                         except Exception as attach_error:
-                            print(f"    Warning: Failed to upload attachment '{attachment_path}': {attach_error}")
+                            print(
+                                f"    Warning: Failed to upload attachment '{attachment_path}': {attach_error}"
+                            )
 
                 # Update version status if requested
                 status_updated = False
@@ -978,32 +1021,110 @@ def batch_sync_notes_to_shotgrid(request: BatchSyncNotesRequest):
                         sg.update(
                             "Version",
                             version["id"],
-                            {"sg_status_list": version_item.status_code}
+                            {"sg_status_list": version_item.status_code},
                         )
                         status_updated = True
                     except Exception as status_error:
                         print(f"    Warning: Failed to update status: {status_error}")
 
-                results["synced"].append({
-                    "version_id": version_item.version_id,
-                    "shotgrid_version_id": version_item.shotgrid_version_id,
-                    "version_code": version_code,
-                    "note_id": created_note["id"],
-                    "status_updated": status_updated,
-                    "attachments_uploaded": len(attachments_uploaded),
-                    "recipient_count": len(recipients)
-                })
+                # Create/update DNA Transcript custom entity if requested
+                dna_transcript_id = None
+                if (
+                    request.sync_transcripts
+                    and version_item.transcript
+                    and request.dna_transcript_entity
+                ):
+                    try:
+                        # Use configurable field names with defaults
+                        version_field = request.version_field or "sg_version"
+                        transcript_field = request.transcript_field or "sg_body"
+                        playlist_field = request.playlist_field or "sg_playlist"
 
-                attachment_msg = f" + {len(attachments_uploaded)} attachment(s)" if attachments_uploaded else ""
-                print(f"  ✓ Synced {version_code} (Note ID: {created_note['id']}){attachment_msg}")
+                        # Check if DNA Transcript already exists for this version
+                        existing_transcript = sg.find_one(
+                            request.dna_transcript_entity,
+                            [
+                                [
+                                    version_field,
+                                    "is",
+                                    {"type": "Version", "id": version["id"]},
+                                ]
+                            ],
+                            ["id"],
+                        )
+
+                        transcript_data = {
+                            version_field: {"type": "Version", "id": version["id"]},
+                            transcript_field: version_item.transcript,
+                            "project": version.get("project"),
+                        }
+
+                        # Add playlist link if provided
+                        if request.playlist_id:
+                            transcript_data[playlist_field] = {
+                                "type": "Playlist",
+                                "id": request.playlist_id,
+                            }
+
+                        if existing_transcript:
+                            # Update existing DNA Transcript
+                            sg.update(
+                                request.dna_transcript_entity,
+                                existing_transcript["id"],
+                                transcript_data,
+                            )
+                            dna_transcript_id = existing_transcript["id"]
+                            print(
+                                f"    ✓ Updated DNA Transcript (ID: {dna_transcript_id})"
+                            )
+                        else:
+                            # Create new DNA Transcript
+                            created_transcript = sg.create(
+                                request.dna_transcript_entity, transcript_data
+                            )
+                            dna_transcript_id = created_transcript["id"]
+                            print(
+                                f"    ✓ Created DNA Transcript (ID: {dna_transcript_id})"
+                            )
+
+                    except Exception as transcript_error:
+                        print(
+                            f"    Warning: Failed to sync transcript: {transcript_error}"
+                        )
+
+                results["synced"].append(
+                    {
+                        "version_id": version_item.version_id,
+                        "shotgrid_version_id": version_item.shotgrid_version_id,
+                        "version_code": version_code,
+                        "note_id": created_note["id"],
+                        "status_updated": status_updated,
+                        "attachments_uploaded": len(attachments_uploaded),
+                        "recipient_count": len(recipients),
+                        "dna_transcript_id": dna_transcript_id,
+                    }
+                )
+
+                attachment_msg = (
+                    f" + {len(attachments_uploaded)} attachment(s)"
+                    if attachments_uploaded
+                    else ""
+                )
+                print(
+                    f"  ✓ Synced {version_code} (Note ID: {created_note['id']}){attachment_msg}"
+                )
 
             except Exception as version_error:
-                results["failed"].append({
-                    "version_id": version_item.version_id,
-                    "shotgrid_version_id": version_item.shotgrid_version_id,
-                    "error": str(version_error)
-                })
-                print(f"  ✗ Failed to sync version {version_item.version_id}: {version_error}")
+                results["failed"].append(
+                    {
+                        "version_id": version_item.version_id,
+                        "shotgrid_version_id": version_item.shotgrid_version_id,
+                        "error": str(version_error),
+                    }
+                )
+                print(
+                    f"  ✗ Failed to sync version {version_item.version_id}: {version_error}"
+                )
 
         # Generate summary
         synced_count = len(results["synced"])
@@ -1018,19 +1139,20 @@ def batch_sync_notes_to_shotgrid(request: BatchSyncNotesRequest):
         return {
             "status": "success",
             "message": f"Synced {synced_count} of {results['total']} versions",
-            "results": results
+            "results": results,
         }
 
     except Exception as e:
         import traceback
+
         print(f"ERROR: Failed to batch sync notes to ShotGrid: {e}")
         print(traceback.format_exc())
         return JSONResponse(
             status_code=500,
             content={
                 "status": "error",
-                "message": f"Failed to batch sync notes: {str(e)}"
-            }
+                "message": f"Failed to batch sync notes: {str(e)}",
+            },
         )
 
 

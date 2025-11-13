@@ -3,12 +3,13 @@ Settings Service
 Manages application settings and .env file persistence
 """
 
+import json
+import os
+from pathlib import Path
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional
-import os
-import json
-from pathlib import Path
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -18,12 +19,26 @@ ENV_FILE = Path(__file__).parent / ".env"
 
 class Settings(BaseModel):
     """Application settings model"""
+
     # ShotGrid
     shotgrid_url: Optional[str] = None
     shotgrid_api_key: Optional[str] = None
     shotgrid_script_name: Optional[str] = None
     shotgrid_author_email: Optional[str] = None
     prepend_session_header: Optional[bool] = None
+
+    # ShotGrid DNA Transcript Settings
+    sg_sync_transcripts: Optional[bool] = None  # Enable transcript syncing
+    sg_dna_transcript_entity: Optional[str] = (
+        None  # Custom entity type (e.g., "CustomEntity01")
+    )
+    sg_transcript_field: Optional[str] = (
+        None  # Transcript text field (default: "sg_body")
+    )
+    sg_version_field: Optional[str] = None  # Version link field (default: "sg_version")
+    sg_playlist_field: Optional[str] = (
+        None  # Playlist link field (default: "sg_playlist")
+    )
 
     # Vexa
     vexa_api_key: Optional[str] = None
@@ -51,16 +66,16 @@ def load_env_file() -> dict:
         return settings
 
     try:
-        with open(ENV_FILE, 'r') as f:
+        with open(ENV_FILE, "r") as f:
             for line in f:
                 line = line.strip()
                 # Skip comments and empty lines
-                if not line or line.startswith('#'):
+                if not line or line.startswith("#"):
                     continue
 
                 # Parse key=value
-                if '=' in line:
-                    key, value = line.split('=', 1)
+                if "=" in line:
+                    key, value = line.split("=", 1)
                     key = key.strip()
                     value = value.strip()
 
@@ -76,9 +91,9 @@ def load_env_file() -> dict:
                             value = value[1:-1]
 
                         # Convert boolean strings
-                        if value.lower() == 'true':
+                        if value.lower() == "true":
                             value = True
-                        elif value.lower() == 'false':
+                        elif value.lower() == "false":
                             value = False
 
                     settings[key] = value
@@ -101,11 +116,11 @@ def save_env_file(settings: dict):
         # Read existing file to preserve comments
         existing_lines = []
         if ENV_FILE.exists():
-            with open(ENV_FILE, 'r') as f:
+            with open(ENV_FILE, "r") as f:
                 existing_lines = f.readlines()
 
         # Write updated file
-        with open(ENV_FILE, 'w') as f:
+        with open(ENV_FILE, "w") as f:
             # Write header if file is new
             if not existing_lines:
                 f.write("# DNA Dailies Notes Assistant Settings\n")
@@ -115,8 +130,8 @@ def save_env_file(settings: dict):
             for line in existing_lines:
                 stripped = line.strip()
                 # Check if this is a key=value line (not comment or empty)
-                if stripped and not stripped.startswith('#') and '=' in stripped:
-                    key = stripped.split('=', 1)[0].strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped:
+                    key = stripped.split("=", 1)[0].strip()
                     # If this key is in our settings to write, write the new value
                     if key in keys_to_write:
                         if key not in written_keys:  # Only write each key once
@@ -128,7 +143,7 @@ def save_env_file(settings: dict):
                     else:
                         # Keep lines for keys not in our settings
                         f.write(line)
-                elif stripped.startswith('#') and stripped == '# New settings':
+                elif stripped.startswith("#") and stripped == "# New settings":
                     # Skip the "New settings" comment lines
                     continue
                 else:
@@ -172,10 +187,7 @@ def get_settings():
             field_name = env_key_to_field(env_key)
             settings_dict[field_name] = value
 
-        return {
-            "status": "success",
-            "settings": settings_dict
-        }
+        return {"status": "success", "settings": settings_dict}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -195,10 +207,7 @@ def update_settings(settings: Settings):
         # Save to .env file
         save_env_file(env_settings)
 
-        return {
-            "status": "success",
-            "message": "Settings saved successfully"
-        }
+        return {"status": "success", "message": "Settings saved successfully"}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -220,10 +229,7 @@ def save_partial_settings(settings: dict):
         # Save merged settings
         save_env_file(existing_env)
 
-        return {
-            "status": "success",
-            "message": "Settings saved successfully"
-        }
+        return {"status": "success", "message": "Settings saved successfully"}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

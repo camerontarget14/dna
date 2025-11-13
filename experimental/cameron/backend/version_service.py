@@ -27,7 +27,12 @@ class Version(BaseModel):
 
     id: str  # Internal unique identifier (auto-generated if not provided)
     name: str  # Display name (from leftmost CSV column)
-    shotgrid_version_id: Optional[int] = None  # ShotGrid version ID (unique integer for syncing)
+    shotgrid_version_id: Optional[int] = (
+        None  # ShotGrid version ID (unique integer for syncing)
+    )
+    sg_dna_transcript_id: Optional[int] = (
+        None  # ShotGrid DNA Transcript custom entity ID
+    )
     user_notes: str = ""
     ai_notes: str = ""
     transcript: str = ""
@@ -139,10 +144,7 @@ async def upload_csv(file: UploadFile = File(...)):
                 version_id = f"v_{auto_id_counter}"
                 auto_id_counter += 1
 
-            versions_data.append({
-                "id": version_id,
-                "name": version_name
-            })
+            versions_data.append({"id": version_id, "name": version_name})
 
     # Clear existing versions and add new ones
     _versions.clear()

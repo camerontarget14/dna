@@ -47,6 +47,11 @@ class BackendService(QObject):
     shotgridApiKeyChanged = Signal()
     shotgridScriptNameChanged = Signal()
     shotgridAuthorEmailChanged = Signal()
+    sgSyncTranscriptsChanged = Signal()
+    sgDnaTranscriptEntityChanged = Signal()
+    sgTranscriptFieldChanged = Signal()
+    sgVersionFieldChanged = Signal()
+    sgPlaylistFieldChanged = Signal()
     prependSessionHeaderChanged = Signal()
     includeStatusesChanged = Signal()
     versionStatusesChanged = Signal()
@@ -152,6 +157,14 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
         self._shotgrid_author_email = ""
         self._prepend_session_header = False
         self._include_statuses = False
+
+        # DNA Transcript Settings
+        self._sg_sync_transcripts = False
+        self._sg_dna_transcript_entity = ""  # e.g., "CustomEntity01"
+        self._sg_transcript_field = "sg_body"
+        self._sg_version_field = "sg_version"
+        self._sg_playlist_field = "sg_playlist"
+
         self._version_statuses = []  # List of display names for UI
         self._version_status_codes = {}  # Dict mapping display names to codes
         self._selected_version_status = ""
@@ -1241,6 +1254,66 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             print(f"ShotGrid Author Email updated: {value}")
             self.save_setting("shotgrid_author_email", value)
 
+    @Property(bool, notify=sgSyncTranscriptsChanged)
+    def sgSyncTranscripts(self):
+        return self._sg_sync_transcripts
+
+    @sgSyncTranscripts.setter
+    def sgSyncTranscripts(self, value):
+        if self._sg_sync_transcripts != value:
+            self._sg_sync_transcripts = value
+            self.sgSyncTranscriptsChanged.emit()
+            print(f"ShotGrid Sync Transcripts updated: {value}")
+            self.save_setting("sg_sync_transcripts", value)
+
+    @Property(str, notify=sgDnaTranscriptEntityChanged)
+    def sgDnaTranscriptEntity(self):
+        return self._sg_dna_transcript_entity
+
+    @sgDnaTranscriptEntity.setter
+    def sgDnaTranscriptEntity(self, value):
+        if self._sg_dna_transcript_entity != value:
+            self._sg_dna_transcript_entity = value
+            self.sgDnaTranscriptEntityChanged.emit()
+            print(f"ShotGrid DNA Transcript Entity updated: {value}")
+            self.save_setting("sg_dna_transcript_entity", value)
+
+    @Property(str, notify=sgTranscriptFieldChanged)
+    def sgTranscriptField(self):
+        return self._sg_transcript_field
+
+    @sgTranscriptField.setter
+    def sgTranscriptField(self, value):
+        if self._sg_transcript_field != value:
+            self._sg_transcript_field = value
+            self.sgTranscriptFieldChanged.emit()
+            print(f"ShotGrid Transcript Field updated: {value}")
+            self.save_setting("sg_transcript_field", value)
+
+    @Property(str, notify=sgVersionFieldChanged)
+    def sgVersionField(self):
+        return self._sg_version_field
+
+    @sgVersionField.setter
+    def sgVersionField(self, value):
+        if self._sg_version_field != value:
+            self._sg_version_field = value
+            self.sgVersionFieldChanged.emit()
+            print(f"ShotGrid Version Field updated: {value}")
+            self.save_setting("sg_version_field", value)
+
+    @Property(str, notify=sgPlaylistFieldChanged)
+    def sgPlaylistField(self):
+        return self._sg_playlist_field
+
+    @sgPlaylistField.setter
+    def sgPlaylistField(self, value):
+        if self._sg_playlist_field != value:
+            self._sg_playlist_field = value
+            self.sgPlaylistFieldChanged.emit()
+            print(f"ShotGrid Playlist Field updated: {value}")
+            self.save_setting("sg_playlist_field", value)
+
     @Property(bool, notify=prependSessionHeaderChanged)
     def prependSessionHeader(self):
         return self._prepend_session_header
@@ -1683,6 +1756,7 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             vid = version.get("id")
             sg_version_id = version.get("shotgrid_version_id")
             user_notes = version.get("user_notes", "")
+            transcript = version.get("transcript", "")
             vstatus = version.get("status", "")
             attachments = version.get("attachments", [])
 
@@ -1701,6 +1775,10 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                 "shotgrid_version_id": sg_version_id,
                 "notes": user_notes.strip(),
             }
+
+            # Include transcript if present
+            if transcript and transcript.strip():
+                version_item["transcript"] = transcript.strip()
 
             # Include status if enabled
             if self._include_statuses and vstatus:
@@ -1743,8 +1821,16 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
             else None,
             "prepend_session_header": self._prepend_session_header,
             "playlist_name": playlist_name,
+            "playlist_id": getattr(self, "_selected_playlist_id", None),
             "session_date": None,  # Will use current date
             "update_status": self._include_statuses,
+            "sync_transcripts": self._sg_sync_transcripts,
+            "dna_transcript_entity": self._sg_dna_transcript_entity
+            if self._sg_dna_transcript_entity
+            else None,
+            "transcript_field": self._sg_transcript_field,
+            "version_field": self._sg_version_field,
+            "playlist_field": self._sg_playlist_field,
         }
 
         try:
@@ -1838,6 +1924,28 @@ Write in a concise, natural tone that's easy for artists to quickly scan and und
                 if "shotgrid_author_email" in settings:
                     self._shotgrid_author_email = settings["shotgrid_author_email"]
                     self.shotgridAuthorEmailChanged.emit()
+
+                if "sg_sync_transcripts" in settings:
+                    self._sg_sync_transcripts = settings["sg_sync_transcripts"]
+                    self.sgSyncTranscriptsChanged.emit()
+
+                if "sg_dna_transcript_entity" in settings:
+                    self._sg_dna_transcript_entity = settings[
+                        "sg_dna_transcript_entity"
+                    ]
+                    self.sgDnaTranscriptEntityChanged.emit()
+
+                if "sg_transcript_field" in settings:
+                    self._sg_transcript_field = settings["sg_transcript_field"]
+                    self.sgTranscriptFieldChanged.emit()
+
+                if "sg_version_field" in settings:
+                    self._sg_version_field = settings["sg_version_field"]
+                    self.sgVersionFieldChanged.emit()
+
+                if "sg_playlist_field" in settings:
+                    self._sg_playlist_field = settings["sg_playlist_field"]
+                    self.sgPlaylistFieldChanged.emit()
 
                 if "prepend_session_header" in settings:
                     self._prepend_session_header = settings["prepend_session_header"]
