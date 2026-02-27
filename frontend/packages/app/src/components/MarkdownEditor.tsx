@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import styled from 'styled-components';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -21,6 +21,7 @@ import {
 interface MarkdownEditorProps {
   value?: string;
   onChange?: (value: string) => void;
+  onAttach?: (file: File) => void;
   placeholder?: string;
   minHeight?: number;
 }
@@ -157,7 +158,6 @@ const Divider = styled.div`
   margin: 4px 4px;
 `;
 
-
 const EditorContent_ = styled(EditorContent)`
   flex: 1;
   overflow-y: auto;
@@ -258,11 +258,28 @@ const EditorContent_ = styled(EditorContent)`
 export function MarkdownEditor({
   value,
   onChange,
+  onAttach,
   placeholder = 'Write your notes here...',
   minHeight = 80,
 }: MarkdownEditorProps) {
   const isUpdatingRef = useRef(false);
   const lastValueRef = useRef(value);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAttachClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        onAttach?.(file);
+        e.target.value = '';
+      }
+    },
+    [onAttach]
+  );
 
   const editor = useEditor({
     extensions: [
@@ -372,10 +389,17 @@ export function MarkdownEditor({
           <Minus />
         </ToolbarButton>
         <Divider />
-        <ToolbarButton title="Attach screenshot">
+        <ToolbarButton title="Attach Image" onClick={handleAttachClick}>
           <Image />
         </ToolbarButton>
       </Toolbar>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
     </EditorWrapper>
   );
 }
