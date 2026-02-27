@@ -182,11 +182,23 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(
     const [isDragOver, setIsDragOver] = useState(false);
 
     const attachmentsRef = useRef<StagedAttachment[]>([]);
+    // Keyed by versionId so each version keeps its own staged attachments
+    const attachmentsByVersion = useRef<Map<number | null | undefined, StagedAttachment[]>>(new Map());
+    const versionIdRef = useRef(versionId);
+
+    // When versionId changes, save current attachments and restore the new version's
+    useEffect(() => {
+      versionIdRef.current = versionId;
+      const saved = attachmentsByVersion.current.get(versionId) ?? [];
+      attachmentsRef.current = saved;
+      setAttachments(saved);
+    }, [versionId]);
 
     const handleAttach = useCallback((file: File) => {
       const previewUrl = URL.createObjectURL(file);
       const next = [...attachmentsRef.current, { id: crypto.randomUUID(), file, previewUrl }];
       attachmentsRef.current = next;
+      attachmentsByVersion.current.set(versionIdRef.current, next);
       setAttachments(next);
     }, []);
 
@@ -195,6 +207,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(
       if (removed) URL.revokeObjectURL(removed.previewUrl);
       const next = attachmentsRef.current.filter(a => a.id !== id);
       attachmentsRef.current = next;
+      attachmentsByVersion.current.set(versionIdRef.current, next);
       setAttachments(next);
     }, []);
 
@@ -220,7 +233,9 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(
 
     useEffect(() => {
       return () => {
-        attachmentsRef.current.forEach(a => URL.revokeObjectURL(a.previewUrl));
+        attachmentsByVersion.current.forEach(list =>
+          list.forEach(a => URL.revokeObjectURL(a.previewUrl))
+        );
       };
     }, []);
     const dragStartY = useRef<number>(0);
