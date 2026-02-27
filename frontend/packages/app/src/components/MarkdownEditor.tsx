@@ -15,6 +15,7 @@ import {
   ListOrdered,
   Quote,
   Minus,
+  Image,
 } from 'lucide-react';
 
 interface MarkdownEditorProps {
@@ -155,6 +156,7 @@ const Divider = styled.div`
   background: ${({ theme }) => theme.colors.border.subtle};
   margin: 4px 4px;
 `;
+
 
 const EditorContent_ = styled(EditorContent)`
   flex: 1;
@@ -368,6 +370,10 @@ export function MarkdownEditor({
           title="Horizontal Rule"
         >
           <Minus />
+        </ToolbarButton>
+        <Divider />
+        <ToolbarButton title="Attach screenshot">
+          <Image />
         </ToolbarButton>
       </Toolbar>
     </EditorWrapper>
