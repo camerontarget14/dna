@@ -96,7 +96,7 @@ export function AssistantPanel({
         <StyledTabsList>
           <StyledTabsTrigger value="assistant">AI Assistant</StyledTabsTrigger>
           <StyledTabsTrigger value="transcript">Transcript</StyledTabsTrigger>
-          {/* Other Pending Notes tab hidden */}
+          {/* Other Pending Notes tab hidden — to re-enable, remove the `{false && ...}` wrapper below */}
           {false && (
             <StyledTabsTrigger value="other">
               Other Pending Notes
