@@ -96,9 +96,12 @@ export function AssistantPanel({
         <StyledTabsList>
           <StyledTabsTrigger value="assistant">AI Assistant</StyledTabsTrigger>
           <StyledTabsTrigger value="transcript">Transcript</StyledTabsTrigger>
-          <StyledTabsTrigger value="other">
-            Other Pending Notes
-          </StyledTabsTrigger>
+          {/* Other Pending Notes tab hidden */}
+          {false && (
+            <StyledTabsTrigger value="other">
+              Other Pending Notes
+            </StyledTabsTrigger>
+          )}
           {isDevMode && (
             <StyledTabsTrigger value="debug">Prompt Debug</StyledTabsTrigger>
           )}
