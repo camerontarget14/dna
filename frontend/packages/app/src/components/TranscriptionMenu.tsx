@@ -14,12 +14,14 @@ import { Button, TextField, Popover, Text } from '@radix-ui/themes';
 import type { BotStatusEnum, ExtensionConnectionStatus } from '@dna/core';
 import {
   useTranscription,
-  parseMeetingUrl,
   usePlaylistMetadata,
   useUpsertPlaylistMetadata,
   useTranscriptionExtension,
 } from '../hooks';
-import { MEETING_PLATFORMS } from '../transcription/meetingPlatforms';
+import {
+  MEETING_PLATFORMS,
+  parseMeetingUrl,
+} from '../transcription/meetingPlatforms';
 import { SplitButton } from './SplitButton';
 
 interface TranscriptionMenuProps {

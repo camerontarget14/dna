@@ -17,9 +17,6 @@ import {
   parseMeetingUrl,
 } from '../transcription/meetingPlatforms';
 
-export { parseMeetingUrl };
-export type { ParsedMeetingUrl } from '../transcription/meetingPlatforms';
-
 export interface UseTranscriptionOptions {
   playlistId: string | null;
 }

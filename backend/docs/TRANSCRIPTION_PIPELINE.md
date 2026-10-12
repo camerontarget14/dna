@@ -221,6 +221,10 @@ An abstraction over the Vexa external service. Handles both REST API calls and t
 - `backend/src/dna/transcription_providers/transcription_provider_base.py` — Abstract base class
 - `backend/src/dna/transcription_providers/vexa.py` — Vexa implementation
 
+Zoom bots use Vexa's web-client join path (the default since Vexa v0.10.4), so
+the Vexa deployment needs no Zoom SDK credentials. See `_zoom_join_url()` in
+`vexa.py` for how the join link and passcode are sent.
+
 **REST operations (via `httpx.AsyncClient`):**
 
 | Vexa Endpoint | Provider Method | Description |
@@ -1077,17 +1081,6 @@ class Platform(str, Enum):
     TEAMS = "teams"
     ZOOM = "zoom"
 ```
-
-Zoom bots use Vexa's web-client join path (the default since Vexa v0.10.4),
-so the Vexa deployment needs no Zoom SDK credentials. Vexa Cloud rejects Zoom
-without a `meeting_url`, so DNA sends the link exactly as the user pasted it,
-alongside the numeric `native_meeting_id` and the link's `?pwd=` value as
-`passcode`. Vexa's Zoom web bot ignores the separate `passcode` field and
-stalls in `joining` unless the passcode is the link's `pwd`. Zoom accepts the
-plain passcode there as well as the encoded one from invite links, so when the
-link has no `pwd` (or there is no link, only a bare meeting ID) the provider
-adds the typed passcode as `?pwd=<passcode>`, building `https://zoom.us/j/<id>`
-for bare IDs.
 
 ---
 

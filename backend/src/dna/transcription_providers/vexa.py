@@ -50,11 +50,12 @@ def _zoom_join_url(
 ) -> str:
     """Build the link Vexa's Zoom bot joins with.
 
-    Vexa refuses Zoom without a meeting_url, and its web bot ignores the
-    separate passcode field: it stalls in "joining" unless the passcode is the
-    link's ``pwd``. Zoom accepts the plain passcode there as well as the
-    encoded one from invite links. Links that already carry a ``pwd`` are
-    returned untouched.
+    Vexa refuses Zoom without a meeting_url, so the link is sent alongside the
+    numeric native_meeting_id, and a bare meeting ID becomes
+    ``https://zoom.us/j/<id>``. Vexa's web bot ignores the separate passcode
+    field: it stalls in "joining" unless the passcode is the link's ``pwd``.
+    Zoom accepts the plain passcode there as well as the encoded one from
+    invite links. Links that already carry a ``pwd`` are returned untouched.
     """
     url = meeting_url or f"https://zoom.us/j/{meeting_id}"
     parts = urlsplit(url)
