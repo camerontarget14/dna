@@ -648,7 +648,13 @@ export function Sidebar({
 
       {collapsed ? (
         <CollapsedToolbar>
-          {transcriptionEnabled && <TranscriptionMenu playlistId={playlistId} collapsed />}
+          <SquareButton
+            variant="cta"
+            onClick={() => setPublishScope('all')}
+          >
+            <Upload />
+            Publish
+          </SquareButton>
         </CollapsedToolbar>
       ) : (
         <Toolbar>
@@ -700,13 +706,7 @@ export function Sidebar({
 
       {collapsed ? (
         <CollapsedFooter>
-          <SquareButton
-            variant="cta"
-            onClick={() => setPublishScope('all')}
-          >
-            <Upload />
-            Publish
-          </SquareButton>
+          {transcriptionEnabled && <TranscriptionMenu playlistId={playlistId} collapsed />}
           <Tooltip content={`Settings (${getLabel('openSettings')})`}>
             <SquareButton variant="neutral" onClick={toggleSettings}>
               <Settings />
