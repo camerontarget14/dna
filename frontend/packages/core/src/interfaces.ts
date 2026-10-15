@@ -415,18 +415,21 @@ export interface GenerateNoteResponse {
   context: string;
 }
 
-export interface AISuggestionState {
-  suggestion: string | null;
-  prompt: string | null;
-  context: string | null;
+export interface AISuggestionGenerationState {
   isLoading: boolean;
   error: Error | null;
 }
 
-export type AISuggestionStateChangeCallback = (
+export type AISuggestionGenerationStateChangeCallback = (
   playlistId: string,
   versionId: string,
-  state: AISuggestionState
+  state: AISuggestionGenerationState
+) => void;
+
+export type AISuggestionGenerationSuccessCallback = (
+  playlistId: string,
+  versionId: string,
+  response: GenerateNoteResponse
 ) => void;
 
 // Search types for entity search endpoint
@@ -546,6 +549,17 @@ export interface PublishTranscriptResponse {
 export interface PublishTranscriptParams {
   playlistId: string;
   request: PublishTranscriptRequest;
+}
+
+/** A transcript row already pushed to the production tracking system. */
+export interface PublishedTranscriptSummary {
+  version_id: string;
+  meeting_id: string;
+  entity_type: string;
+  entity_id: string;
+  /** Row name in the tracking system, e.g. "transcript-7056-2026-08-12". */
+  name: string;
+  updated_at: string;
 }
 
 export type NoteQCSeverity = 'warning' | 'error';
