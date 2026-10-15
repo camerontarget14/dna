@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import styled from 'styled-components';
+import styled, { useTheme } from 'styled-components';
 import {
   PanelLeftClose,
   PanelLeft,
@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { Button, DropdownMenu, Tooltip } from '@radix-ui/themes';
 import { SCRATCH_VERSION_ID } from '@dna/core';
-import type { Version, DraftNote, Playlist } from '@dna/core';
+import type { Version, DraftNote, Playlist, Exporter } from '@dna/core';
 import { Logo } from './Logo';
 import { UserAvatar } from './UserAvatar';
 import { SplitButton } from './SplitButton';
@@ -25,6 +25,9 @@ import { TranscriptionMenu } from './TranscriptionMenu';
 import { SettingsModal } from './SettingsModal';
 import { PublishDialog } from './PublishDialog';
 import { scopePublishToVersion } from './publishScope';
+import { createReviewExporters } from '../export/exporters';
+import { loadReviewExportData } from '../export/loadReviewExportData';
+import { chooseSaveDestination } from '../export/saveDestination';
 import { useGetVersionsForPlaylist, useGetUserByEmail, apiHandler } from '../api';
 import {
   usePlaylistMetadata,
@@ -33,7 +36,7 @@ import {
   useSetInReview,
 } from '../hooks';
 import { useHotkeyAction, useHotkeyConfig } from '../hotkeys';
-import { useFeatureFlags } from '../contexts';
+import { useFeatureFlags, useToast } from '../contexts';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -375,6 +378,56 @@ export function Sidebar({
     onVersionSelect?.(scratchVersion);
   };
 
+  const { showToast } = useToast();
+  const theme = useTheme();
+  const exporters = useMemo(
+    () => createReviewExporters({ accent: theme.colors.accent.main }),
+    [theme.colors.accent.main]
+  );
+  const [exportingLabel, setExportingLabel] = useState<string | null>(null);
+
+  const handleExport = async (exporter: Exporter) => {
+    if (!playlistId) return;
+    const { label, extension } = exporter.fileType;
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      // The save dialog needs the click's user gesture, so it goes first.
+      const destination = await chooseSaveDestination(
+        `dna-review-playlist-${playlistId}-${today}${extension}`,
+        exporter.fileType
+      );
+      if (!destination) return;
+      setExportingLabel(label);
+
+      const data = await loadReviewExportData({
+        playlistId,
+        projectId,
+        versions: [
+          ...(hasScratch ? [scratchVersion] : []),
+          ...(versions ?? []),
+        ],
+        userEmail,
+        transcriptionEnabled,
+        queryClient,
+      });
+      await exporter.export(data, destination);
+      const count = data.rows.length;
+      showToast({
+        title: `${label} exported`,
+        description: `${count} version${count === 1 ? '' : 's'} saved.`,
+        type: 'success',
+      });
+    } catch (err) {
+      showToast({
+        title: `${label} export failed`,
+        description: err instanceof Error ? err.message : String(err),
+        type: 'error',
+      });
+    } finally {
+      setExportingLabel(null);
+    }
+  };
+
   const handleRemoveScratch = () => {
     if (!playlistId) return;
     void upsertPlaylistMetadata.mutateAsync({ has_scratch: false });
@@ -558,6 +611,20 @@ export function Sidebar({
                     >
                       Publish Selected
                     </DropdownMenu.Item>
+                    {exporters.map((exporter) => {
+                      const { label } = exporter.fileType;
+                      return (
+                        <DropdownMenu.Item
+                          key={label}
+                          disabled={!playlistId || exportingLabel !== null}
+                          onSelect={() => void handleExport(exporter)}
+                        >
+                          {exportingLabel === label
+                            ? `Exporting ${label}…`
+                            : `Export ${label}`}
+                        </DropdownMenu.Item>
+                      );
+                    })}
                   </DropdownMenu.Content>
                 </DropdownMenu.Root>
               </PublishSplit>
